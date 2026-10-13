@@ -1,0 +1,44 @@
+{
+  "aivendora": {
+    "telegram_id": "-1004297282265",
+    "yt": "Aivendora",
+    "insta": "aivendora.ai",
+    "wix_key": "WIX_KEY_AIVENDORA"
+  },
+  "trendmind": {
+    "telegram_id": "-1004347056585",
+    "yt": "TrendmindAI7",
+    "insta": "trendmindai7",
+    "wix_key": "WIX_KEY_TRENDMIND"
+  },
+  "adbrainx": {
+    "telegram_id": "-1003551237987",
+    "yt": "Adbrainx",
+    "insta": "adbrainx",
+    "wix_key": "WIX_KEY_ADBRAINX"
+  },
+  "globaldrop": {
+    "telegram_id": "-1003992478261",
+    "yt": "GlobalDropAI",
+    "insta": "globaldrop.ai",
+    "wix_key": "WIX_KEY_GLOBALDROP"
+  },
+  "smartshiply": {
+    "telegram_id": "-1003824798019",
+    "yt": "Smartshiply",
+    "insta": "smartshiply",
+    "wix_key": "WIX_KEY_SMARTSHIPLY"
+  },
+  "nichepilot": {
+    "telegram_id": "-1003814005889",
+    "yt": "NichepilotAI",
+    "insta": "nichepilotai",
+    "wix_key": "WIX_KEY_NICHEPILOT"
+  },
+  "cartflow": {
+    "telegram_id": "-1003801986303",
+    "yt": "CartflowAI",
+    "insta": "cartflowai",
+    "wix_key": "WIX_KEY_CARTFLOW"
+  }
+}
