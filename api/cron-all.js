@@ -1,2 +1,21 @@
-const N=["aivendora","trendmind","smartshiply","nichepilotai","adbrainx","cartflowai","globaldrop"];
-module.exports=async(req,res)=>{const u=process.env.KV_REST_API_URL,t=process.env.KV_REST_API_TOKEN;if(!u||!t)return res.json({error:"no KV"});try{const r=await fetch(`${u}/lpop/final_queue`,{headers:{Authorization:`Bearer ${t}`}});const j=await r.json();if(!j.result)return res.json({status:"empty",matrix:"7x4=28"});const item=JSON.parse(j.result);const BOT=process.env.BOT_TOKEN;const TG=JSON.parse(process.env.TG_TOKENS_JSON||"{}");const chat=TG[item.niche]||TG.default;if(BOT&&chat){await fetch(`https://api.telegram.org/bot${BOT}/sendMessage`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chat,text:`🔥 ${item.niche.toUpperCase()} | ${item.url}`})});}res.json({status:"posted",item});}catch(e){res.json({error:e.message});}}
+// Vercel Cron — hits every 30 min, posts due jobs with gaps
+const { dueJobs, markDone } = require('../lib/queue');
+const { postToAllPlatforms } = require('../lib/distributor');
+
+module.exports = async (req, res) => {
+  // Optional safety: check CRON_SECRET
+  // if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).send('no');
+
+  const jobs = dueJobs();
+  // Post max 1 job per cron hit to respect gaps
+  if (jobs.length) {
+    const job = jobs[0];
+    try {
+      await postToAllPlatforms(job.niche, job.productUrl);
+      markDone(job);
+    } catch (e) {
+      console.error('cron post failed', e.message);
+    }
+  }
+  return res.status(200).json({ processed: jobs.length ? 1 : 0 });
+};
