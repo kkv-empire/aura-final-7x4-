@@ -1,3 +1,4 @@
+   // v2 deploy trigger
 // /api/post.js — self-contained webhook: video_url -> 7 IG + 7 FB pages
 // Kisi aur file ki zaroorat nahi. Env vars: IG_FB_JSON, POST_TO_IG, POST_TO_FB
 export const maxDuration = 60;
