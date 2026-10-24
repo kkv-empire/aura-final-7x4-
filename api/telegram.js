@@ -1,6 +1,6 @@
-// api/telegram.js — SELF-DIAGNOSING version
-// Vercel logs kholne ki zaroorat NAHI — problem hogi to bot KHUD Telegram pe batayega.
-// Module import pe kabhi crash nahi hota (saare requires lazy hain).
+// api/telegram.js — MANUAL ENTRY version (Rasta 2)
+// Amazon scraping/API band — user khud title, price, photo bhejta hai.
+// Baaki flow same: niche button → queue → cron → video → 4 platforms.
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
@@ -79,6 +79,102 @@ function extractASIN(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
+// ---- MANUAL FLOW: title → price → photo(s) → DONE ----
+async function handleManual(chatId, msg, text, pending) {
+  const r = getRedis();
+
+  // Beech me naya link aaya to purana flow discard, naya shuru
+  const newAsin = extractASIN(text);
+  if (newAsin && newAsin !== pending.asin) {
+    await r.set(pkey(chatId), { manual: true, asin: newAsin, step: "title" }, { ex: 600 });
+    await tg("sendMessage", {
+      chat_id: chatId, parse_mode: "HTML",
+      text: `🔗 Naya link mil gaya! Purani entry hata di.\n\n📝 <b>Step 1/3:</b> Product ka <b>title</b> bhejo\n(Amazon app se copy karke paste kar do)`,
+    });
+    return;
+  }
+
+  if (pending.step === "title") {
+    if (!text) {
+      await tg("sendMessage", { chat_id: chatId, text: "📝 Pehle product ka title bhejo (text me likhke)." });
+      return;
+    }
+    pending.title = text.slice(0, 200);
+    pending.step = "price";
+    await r.set(pkey(chatId), pending, { ex: 600 });
+    await tg("sendMessage", {
+      chat_id: chatId, parse_mode: "HTML",
+      text: `✅ Title save ho gaya!\n\n💰 <b>Step 2/3:</b> Product ka <b>price</b> bhejo (jaise ₹1,299)`,
+    });
+    return;
+  }
+
+  if (pending.step === "price") {
+    if (!text) {
+      await tg("sendMessage", { chat_id: chatId, text: "💰 Price text me bhejo (jaise ₹1,299)." });
+      return;
+    }
+    pending.price = text.slice(0, 40);
+    pending.step = "photo";
+    pending.images = [];
+    await r.set(pkey(chatId), pending, { ex: 600 });
+    await tg("sendMessage", {
+      chat_id: chatId, parse_mode: "HTML",
+      text: `✅ Price save ho gaya!\n\n🖼️ <b>Step 3/3:</b> Product ki <b>photo</b> bhejo (gallery se)\n\n• Max <b>4 photos</b> — ek-ek karke bhejo\n• Ho jaye to <b>DONE</b> likho`,
+    });
+    return;
+  }
+
+  if (pending.step === "photo") {
+    if (msg.photo && msg.photo.length) {
+      if (pending.images.length >= 4) {
+        await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "4 photos ho gayi ✅ — ab <b>DONE</b> likho." });
+        return;
+      }
+      const fileId = msg.photo[msg.photo.length - 1].file_id;
+      const gf = await tg("getFile", { file_id: fileId });
+      const fpath = gf && gf.result && gf.result.file_path;
+      if (!fpath) throw new Error("photo download fail");
+      const dl = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${fpath}`);
+      if (!dl.ok) throw new Error("photo download fail");
+      const buf = Buffer.from(await dl.arrayBuffer());
+      pending.images.push("data:image/jpeg;base64," + buf.toString("base64"));
+      await r.set(pkey(chatId), pending, { ex: 600 });
+      await tg("sendMessage", {
+        chat_id: chatId, parse_mode: "HTML",
+        text: `✅ Photo ${pending.images.length} mili — aur bhejo ya <b>DONE</b> likho`,
+      });
+      return;
+    }
+    if (text.toLowerCase() === "done") {
+      if (!pending.images.length) {
+        await tg("sendMessage", { chat_id: chatId, text: "🖼️ Pehle kam se kam 1 photo to bhejo!" });
+        return;
+      }
+      const tag = process.env.AMAZON_TAG || "";
+      const url = `https://www.amazon.in/dp/${pending.asin}`;
+      const p = {
+        asin: pending.asin,
+        title: pending.title,
+        price: pending.price,
+        images: pending.images,
+        features: [],
+        amazon_link: url,
+        affiliate_link: tag ? `${url}?tag=${tag}` : url,
+      };
+      await r.set(pkey(chatId), p, { ex: 600 });
+      await tg("sendMessage", {
+        chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
+        text: `📦 <b>${String(p.title).slice(0, 120)}</b>\n💰 ${p.price}\n🖼️ ${p.images.length} photo(s)\n\n👇 Niche chuno:`,
+        reply_markup: { inline_keyboard: nicheButtons(pending.asin) },
+      });
+      return;
+    }
+    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "🖼️ Photo bhejo ya <b>DONE</b> likho." });
+    return;
+  }
+}
+
 async function handleUpdate(update) {
   if (update.callback_query) {
     const cb = update.callback_query;
@@ -102,15 +198,15 @@ async function handleUpdate(update) {
   }
 
   const msg = update.message;
-  if (!msg || !msg.text) return;
+  if (!msg) return;
   const chatId = msg.chat.id;
-  const text = msg.text.trim();
+  const text = (msg.text || "").trim();
 
   if (text === "/start") {
     const health = await healthReport();
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ Amazon.in ka product link bhejo\n2️⃣ Niche ka button dabao\n3️⃣ Video banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho`,
+      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ Amazon.in ka product link bhejo\n2️⃣ Title, price, photo bhejo (30 sec)\n3️⃣ Niche ka button dabao\n4️⃣ Video banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho\n❌ /cancel — beech me entry radd karo`,
     });
     return;
   }
@@ -121,29 +217,31 @@ async function handleUpdate(update) {
     return;
   }
 
+  if (text === "/cancel") {
+    await getRedis().del(pkey(chatId));
+    await tg("sendMessage", { chat_id: chatId, text: "❌ Entry cancel ho gayi — naya Amazon.in link bhejo." });
+    return;
+  }
+
+  // Manual flow chal raha hai to wahi handle karega
+  const pending = await getRedis().get(pkey(chatId));
+  if (pending && pending.manual) {
+    await handleManual(chatId, msg, text, pending);
+    return;
+  }
+
   const asin = extractASIN(text);
   if (!asin) {
     await tg("sendMessage", { chat_id: chatId, text: "🔗 Amazon.in ka product link bhejo shuru karne ke liye." });
     return;
   }
 
-  await tg("sendMessage", { chat_id: chatId, text: "🔍 Link mil gaya… details nikaal raha hoon…" });
-  try {
-    const { fetchProduct } = require("../lib/amazon");
-    const p = await fetchProduct(asin);
-    await getRedis().set(pkey(chatId), p, { ex: 600 });
-    const feats = (p.features || []).slice(0, 2).map((f) => `✨ ${f}`).join("\n");
-    await tg("sendMessage", {
-      chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-      text: `📦 <b>${p.title.slice(0, 120)}</b>\n${p.price ? `💰 ${p.price}\n` : ""}${feats ? feats + "\n" : ""}🖼️ ${p.images.length} photos mili\n\n👇 Niche chuno:`,
-      reply_markup: { inline_keyboard: nicheButtons(asin) },
-    });
-  } catch (e) {
-    if (e.userMessage) throw e;
-    const err = new Error("amazon fail");
-    err.userMessage = `⚠️ Amazon page nahi khul paya.\n${String(e.message || e).slice(0, 120)}\n\n2 min baad link dobara bhejo.`;
-    throw err;
-  }
+  // Manual entry shuru — scraping nahi, user khud details dega
+  await getRedis().set(pkey(chatId), { manual: true, asin, step: "title" }, { ex: 600 });
+  await tg("sendMessage", {
+    chat_id: chatId, parse_mode: "HTML",
+    text: `🔗 Link mil gaya! Ab details <b>tum</b> doge (30 second ka kaam):\n\n📝 <b>Step 1/3:</b> Product ka <b>title</b> bhejo\n(Amazon app se copy karke paste kar do)`,
+  });
 }
 
 module.exports = async (req, res) => {
