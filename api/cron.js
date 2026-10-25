@@ -1,21 +1,33 @@
-// Vercel Cron — hits every 30 min, posts due jobs with gaps
-const { dueJobs, markDone } = require('../lib/queue');
-const { postToAllPlatforms } = require('../lib/distributor');
-
+// api/cron.js — SELF-DIAGNOSING version
+// Import time pe crash ho to bhi JSON me asli wajah batayega (FUNCTION_INVOCATION_FAILED nahi)
 module.exports = async (req, res) => {
-  // Optional safety: check CRON_SECRET
-  // if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) return res.status(401).send('no');
-
-  const jobs = dueJobs();
-  // Post max 1 job per cron hit to respect gaps
-  if (jobs.length) {
-    const job = jobs[0];
-    try {
-      await postToAllPlatforms(job.niche, job.productUrl);
-      markDone(job);
-    } catch (e) {
-      console.error('cron post failed', e.message);
-    }
+  let runScheduled;
+  try {
+    runScheduled = require("../lib/scheduler").runScheduled;
+  } catch (e) {
+    return res.status(500).json({
+      done: false,
+      stage: "import",
+      error: "require fail: " + String(e.message || e).slice(0, 500),
+      hint: "Koi lib file missing ya usme top-level crash hai. GitHub pe saari lib/* files hain?",
+    });
   }
-  return res.status(200).json({ processed: jobs.length ? 1 : 0 });
+  const missing = [];
+  if (!process.env.UPSTASH_REDIS_REST_URL) missing.push("UPSTASH_REDIS_REST_URL");
+  if (!process.env.UPSTASH_REDIS_REST_TOKEN) missing.push("UPSTASH_REDIS_REST_TOKEN");
+  if (!process.env.TG_BOT_TOKEN) missing.push("TG_BOT_TOKEN");
+  if (missing.length) {
+    return res.status(500).json({ done: false, stage: "env", error: "Missing env: " + missing.join(", ") });
+  }
+  try {
+    const result = await runScheduled();
+    return res.status(200).json(result);
+  } catch (e) {
+    return res.status(500).json({
+      done: false,
+      stage: "run",
+      error: String(e.message || e).slice(0, 500),
+      stack: String(e.stack || "").split("\n").slice(0, 5).join(" | ").slice(0, 500),
+    });
+  }
 };
