@@ -1,7 +1,14 @@
-// api/telegram.js — MANUAL ENTRY version (Rasta 2)
-// Amazon scraping/API band — user khud title, price, photo bhejta hai.
-// Baaki flow same: niche button → queue → cron → video → 4 platforms.
+// api/telegram.js — Telegram webhook (Vercel serverless) — MANUAL ENTRY version
+// Flow: /start → Amazon link → title → price → photo → DONE → niche buttons → Redis queue → cron
+// Amazon scraping/API band — user khud details bhejta hai (Rasta 2).
+const { Redis } = require("@upstash/redis");
+const { extractASIN } = require("../lib/amazon");
+const { pushProduct, queueLength } = require("../lib/queue");
 
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
 const pkey = (chat) => `aura:pending:${chat}`;
@@ -15,55 +22,6 @@ async function tg(method, body) {
   return r.json();
 }
 
-// Lazy Redis — env missing ho to seedha user ko samjhata hai
-let _redis = null;
-function getRedis() {
-  if (_redis) return _redis;
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) {
-    const e = new Error("env missing");
-    e.userMessage =
-      "⚠️ <b>Upstash Redis nahi mila!</b>\n\nVercel → Settings → Environment Variables me ye 2 add karo:\n" +
-      "• UPSTASH_REDIS_REST_URL\n• UPSTASH_REDIS_REST_TOKEN\n\n(Upstash dashboard → REST API se copy karo)\n" +
-      "Fir <b>Deployments → Redeploy</b> dabao 🔄";
-    throw e;
-  }
-  const { Redis } = require("@upstash/redis");
-  _redis = new Redis({ url, token });
-  return _redis;
-}
-
-async function pushProduct(p) {
-  const r = getRedis();
-  const id = "p" + Date.now().toString(36);
-  await r.hset(`aura:product:${id}`, { ...p, id, status: "queued", createdAt: new Date().toISOString() });
-  await r.rpush("aura:queue", id);
-  return id;
-}
-
-async function queueLength() {
-  return await getRedis().llen("aura:queue");
-}
-
-// /start pe poora health report
-async function healthReport() {
-  const lines = ["🏥 <b>System Health:</b>"];
-  lines.push("✅ Telegram token: OK");
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    try {
-      await getRedis().ping();
-      lines.push("✅ Redis queue: OK");
-    } catch (e) {
-      lines.push("❌ Redis connect fail: " + String(e.message || e).slice(0, 80));
-    }
-  } else {
-    lines.push("❌ Redis: env variables missing");
-  }
-  lines.push(process.env.AMAZON_TAG ? "✅ Amazon tag: OK" : "⚠️ Amazon tag: missing (link bina commission ke banega)");
-  return lines.join("\n");
-}
-
 function nicheButtons(asin) {
   const rows = [];
   for (let i = 0; i < NICHES.length; i += 2) {
@@ -74,22 +32,15 @@ function nicheButtons(asin) {
   return rows;
 }
 
-function extractASIN(text) {
-  const m = String(text).match(/amazon\.in\/(?:.*\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
-  return m ? m[1].toUpperCase() : null;
-}
-
 // ---- MANUAL FLOW: title → price → photo(s) → DONE ----
 async function handleManual(chatId, msg, text, pending) {
-  const r = getRedis();
-
   // Beech me naya link aaya to purana flow discard, naya shuru
   const newAsin = extractASIN(text);
   if (newAsin && newAsin !== pending.asin) {
-    await r.set(pkey(chatId), { manual: true, asin: newAsin, step: "title" }, { ex: 600 });
+    await redis.set(pkey(chatId), { manual: true, asin: newAsin, step: "title" }, { ex: 600 });
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML",
-      text: `🔗 Naya link mil gaya! Purani entry hata di.\n\n📝 <b>Step 1/3:</b> Product ka <b>title</b> bhejo\n(Amazon app se copy karke paste kar do)`,
+      text: `🔗 Naya link mil gaya! Purani entry hata di.\n\n📝 <b>Step 1/3:</b> Product ka <b>title</b> bhejo`,
     });
     return;
   }
@@ -101,7 +52,7 @@ async function handleManual(chatId, msg, text, pending) {
     }
     pending.title = text.slice(0, 200);
     pending.step = "price";
-    await r.set(pkey(chatId), pending, { ex: 600 });
+    await redis.set(pkey(chatId), pending, { ex: 600 });
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML",
       text: `✅ Title save ho gaya!\n\n💰 <b>Step 2/3:</b> Product ka <b>price</b> bhejo (jaise ₹1,299)`,
@@ -117,7 +68,7 @@ async function handleManual(chatId, msg, text, pending) {
     pending.price = text.slice(0, 40);
     pending.step = "photo";
     pending.images = [];
-    await r.set(pkey(chatId), pending, { ex: 600 });
+    await redis.set(pkey(chatId), pending, { ex: 600 });
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML",
       text: `✅ Price save ho gaya!\n\n🖼️ <b>Step 3/3:</b> Product ki <b>photo</b> bhejo (gallery se)\n\n• Max <b>4 photos</b> — ek-ek karke bhejo\n• Ho jaye to <b>DONE</b> likho`,
@@ -139,7 +90,7 @@ async function handleManual(chatId, msg, text, pending) {
       if (!dl.ok) throw new Error("photo download fail");
       const buf = Buffer.from(await dl.arrayBuffer());
       pending.images.push("data:image/jpeg;base64," + buf.toString("base64"));
-      await r.set(pkey(chatId), pending, { ex: 600 });
+      await redis.set(pkey(chatId), pending, { ex: 600 });
       await tg("sendMessage", {
         chat_id: chatId, parse_mode: "HTML",
         text: `✅ Photo ${pending.images.length} mili — aur bhejo ya <b>DONE</b> likho`,
@@ -162,7 +113,7 @@ async function handleManual(chatId, msg, text, pending) {
         amazon_link: url,
         affiliate_link: tag ? `${url}?tag=${tag}` : url,
       };
-      await r.set(pkey(chatId), p, { ex: 600 });
+      await redis.set(pkey(chatId), p, { ex: 600 });
       await tg("sendMessage", {
         chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
         text: `📦 <b>${String(p.title).slice(0, 120)}</b>\n💰 ${p.price}\n🖼️ ${p.images.length} photo(s)\n\n👇 Niche chuno:`,
@@ -176,15 +127,15 @@ async function handleManual(chatId, msg, text, pending) {
 }
 
 async function handleUpdate(update) {
+  // --- Niche button dabaya ---
   if (update.callback_query) {
     const cb = update.callback_query;
     const chatId = cb.message.chat.id;
-    const parts = String(cb.data || "").split(":");
-    const asin = parts[1], niche = parts[2];
-    const p = await getRedis().get(pkey(chatId));
+    const [, asin, niche] = String(cb.data || "").split(":");
+    const p = await redis.get(pkey(chatId));
     if (p && p.asin === asin) {
       await pushProduct({ ...p, niche });
-      await getRedis().del(pkey(chatId));
+      await redis.del(pkey(chatId));
       const n = await queueLength();
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Queue me daal diya ✅" });
       await tg("editMessageText", {
@@ -203,28 +154,25 @@ async function handleUpdate(update) {
   const text = (msg.text || "").trim();
 
   if (text === "/start") {
-    const health = await healthReport();
     await tg("sendMessage", {
-      chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ Amazon.in ka product link bhejo\n2️⃣ Title, price, photo bhejo (30 sec)\n3️⃣ Niche ka button dabao\n4️⃣ Video banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho\n❌ /cancel — beech me entry radd karo`,
+      chat_id: chatId, parse_mode: "HTML",
+      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n1️⃣ Amazon.in ka product link bhejo\n2️⃣ Title, price, photo bhejo (30 sec)\n3️⃣ Niche ka button dabao\n4️⃣ Video banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho\n❌ /cancel — entry radd karo`,
     });
     return;
   }
-
   if (text === "/status") {
     const n = await queueLength();
     await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📊 Queue me: <b>${n}</b> product(s)` });
     return;
   }
-
   if (text === "/cancel") {
-    await getRedis().del(pkey(chatId));
-    await tg("sendMessage", { chat_id: chatId, text: "❌ Entry cancel ho gayi — naya Amazon.in link bhejo." });
+    await redis.del(pkey(chatId));
+    await tg("sendMessage", { chat_id: chatId, text: "❌ Entry cancel — naya Amazon.in link bhejo." });
     return;
   }
 
   // Manual flow chal raha hai to wahi handle karega
-  const pending = await getRedis().get(pkey(chatId));
+  const pending = await redis.get(pkey(chatId));
   if (pending && pending.manual) {
     await handleManual(chatId, msg, text, pending);
     return;
@@ -237,7 +185,7 @@ async function handleUpdate(update) {
   }
 
   // Manual entry shuru — scraping nahi, user khud details dega
-  await getRedis().set(pkey(chatId), { manual: true, asin, step: "title" }, { ex: 600 });
+  await redis.set(pkey(chatId), { manual: true, asin, step: "title" }, { ex: 600 });
   await tg("sendMessage", {
     chat_id: chatId, parse_mode: "HTML",
     text: `🔗 Link mil gaya! Ab details <b>tum</b> doge (30 second ka kaam):\n\n📝 <b>Step 1/3:</b> Product ka <b>title</b> bhejo\n(Amazon app se copy karke paste kar do)`,
@@ -246,19 +194,10 @@ async function handleUpdate(update) {
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(200).send("Aura bot live 🤖");
-  const update = req.body || {};
-  const chatId = (update.message && update.message.chat && update.message.chat.id) ||
-                 (update.callback_query && update.callback_query.message && update.callback_query.message.chat.id);
   try {
-    await handleUpdate(update);
+    await handleUpdate(req.body || {});
   } catch (e) {
-    console.error("webhook error:", e && e.message);
-    if (chatId) {
-      const msg = e.userMessage || ("⚠️ Error: " + String((e && e.message) || e).slice(0, 250));
-      try {
-        await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: msg });
-      } catch (_) {}
-    }
+    console.error("webhook error:", e);
   }
   return res.status(200).send("ok");
 };
