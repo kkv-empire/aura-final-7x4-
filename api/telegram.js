@@ -1,10 +1,10 @@
-// api/telegram.js — SELF-DIAGNOSING + AUTO-CRON version
-// Niche select karte hi bot KHUD /api/cron trigger karta hai — koi schedule nahi chahiye!
-// Vercel logs kholne ki zaroorat NAHI — problem hogi to bot KHUD Telegram pe batayega.
+// api/telegram.js — SELF-DIAGNOSING + AUTO-CRON + MANUAL FALLBACK
+// Amazon block kare to user se photo + naam lekar aage badho
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
 const pkey = (chat) => `aura:pending:${chat}`;
+const mkey = (chat) => `aura:manual:${chat}`;
 
 async function tg(method, body) {
   const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
@@ -15,7 +15,6 @@ async function tg(method, body) {
   return r.json();
 }
 
-// Lazy Redis — env missing ho to seedha user ko samjhata hai
 let _redis = null;
 function getRedis() {
   if (_redis) return _redis;
@@ -46,14 +45,12 @@ async function queueLength() {
   return await getRedis().llen("aura:queue");
 }
 
-// Cron ko turant trigger karo (fire-and-forget — response ka wait nahi)
 function triggerCron(host) {
   if (!host) return;
   const url = `https://${host}/api/cron`;
   fetch(url).catch(() => {});
 }
 
-// /start pe poora health report
 async function healthReport() {
   const lines = ["🏥 <b>System Health:</b>"];
   lines.push("✅ Telegram token: OK");
@@ -68,6 +65,7 @@ async function healthReport() {
     lines.push("❌ Redis: env variables missing");
   }
   lines.push("⚡ Auto-cron: ON (niche dabate hi video banana shuru)");
+  lines.push("📸 Manual mode: ON (Amazon block ho to photo se kaam)");
   lines.push(process.env.AMAZON_TAG ? "✅ Amazon tag: OK" : "⚠️ Amazon tag: missing (link bina commission ke banega)");
   return lines.join("\n");
 }
@@ -85,6 +83,26 @@ function nicheButtons(asin) {
 function extractASIN(text) {
   const m = String(text).match(/amazon\.in\/(?:.*\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
   return m ? m[1].toUpperCase() : null;
+}
+
+async function finishManualProduct(chatId, m) {
+  const tag = process.env.AMAZON_TAG || "";
+  const asin = m.asin || ("MANUAL" + Date.now().toString(36).toUpperCase());
+  const p = {
+    asin,
+    title: m.title,
+    price: m.price || "",
+    images: [m.photoUrl],
+    features: [],
+    amazon_link: m.url || "",
+    affiliate_link: tag && m.url ? `${m.url}?tag=${tag}` : (m.url || ""),
+  };
+  await getRedis().set(pkey(chatId), p, { ex: 600 });
+  await tg("sendMessage", {
+    chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
+    text: `📦 <b>${p.title.slice(0, 120)}</b>\n${p.price ? `💰 ${p.price}\n` : ""}🖼️ 1 photo\n\n👇 Niche chuno:`,
+    reply_markup: { inline_keyboard: nicheButtons(p.asin) },
+  });
 }
 
 async function handleUpdate(update) {
@@ -113,15 +131,38 @@ async function handleUpdate(update) {
   }
 
   const msg = update.message;
-  if (!msg || !msg.text) return queuedProduct;
+  if (!msg) return queuedProduct;
   const chatId = msg.chat.id;
-  const text = msg.text.trim();
+
+  if (msg.photo && msg.photo.length) {
+    const m = await getRedis().get(mkey(chatId));
+    if (m && m.step === "photo") {
+      const photo = msg.photo[msg.photo.length - 1];
+      const f = await tg("getFile", { file_id: photo.file_id });
+      const fp = f && f.result && f.result.file_path;
+      if (!fp) {
+        await tg("sendMessage", { chat_id: chatId, text: "⚠️ Photo download nahi hui, dobara bhejo." });
+        return queuedProduct;
+      }
+      m.photoUrl = `https://api.telegram.org/file/bot${TOKEN}/${fp}`;
+      m.step = "title";
+      await getRedis().set(mkey(chatId), m, { ex: 600 });
+      await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "📸 <b>Photo mil gayi!</b>\n\n📝 Ab product ka <b>naam</b> likho:" });
+      return queuedProduct;
+    }
+    await tg("sendMessage", { chat_id: chatId, text: "📸 Photo ke liye pehle Amazon link bhejo (agar block ho to main khud mangunga)." });
+    return queuedProduct;
+  }
+
+  const text = (msg.text || "").trim();
+  if (!text) return queuedProduct;
 
   if (text === "/start") {
+    await getRedis().del(mkey(chatId));
     const health = await healthReport();
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ Amazon.in ka product link bhejo\n2️⃣ Niche ka button dabao\n3️⃣ Video turant banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho`,
+      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ 【entity-Amazon¦canonical_name=Amazon】.in ka product link bhejo\n2️⃣ Niche ka button dabao\n3️⃣ Video turant banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho`,
     });
     return queuedProduct;
   }
@@ -129,6 +170,25 @@ async function handleUpdate(update) {
   if (text === "/status") {
     const n = await queueLength();
     await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📊 Queue me: <b>${n}</b> product(s)` });
+    return queuedProduct;
+  }
+
+  const m = await getRedis().get(mkey(chatId));
+  if (m && m.step === "title") {
+    m.title = text.slice(0, 200);
+    m.step = "price";
+    await getRedis().set(mkey(chatId), m, { ex: 600 });
+    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📝 <b>Naam save!</b>\n\n💰 Ab <b>price</b> likho (jaise ₹499) ya <b>skip</b> likho:` });
+    return queuedProduct;
+  }
+  if (m && m.step === "price") {
+    m.price = text.toLowerCase() === "skip" ? "" : text.slice(0, 50);
+    await getRedis().del(mkey(chatId));
+    await finishManualProduct(chatId, m);
+    return queuedProduct;
+  }
+  if (m && m.step === "photo") {
+    await tg("sendMessage", { chat_id: chatId, text: "📸 Pehle product ki photo bhejo (text nahi)." });
     return queuedProduct;
   }
 
@@ -150,7 +210,14 @@ async function handleUpdate(update) {
       reply_markup: { inline_keyboard: nicheButtons(asin) },
     });
   } catch (e) {
-    if (e.userMessage) throw e;
+    if (e.userMessage) {
+      await getRedis().set(mkey(chatId), { step: "photo", asin, url: text }, { ex: 600 });
+      await tg("sendMessage", {
+        chat_id: chatId, parse_mode: "HTML",
+        text: `⚠️ <b>Amazon abhi block kar raha hai.</b>\n\n🔄 <b>Manual mode ON:</b> koi tension nahi!\n\n📸 Product ki <b>photo bhejo</b>\n(Amazon app kholo → product ki image save/screenshot karke yahan bhejo)`,
+      });
+      return queuedProduct;
+    }
     const err = new Error("amazon fail");
     err.userMessage = `⚠️ Amazon page nahi khul paya.\n${String(e.message || e).slice(0, 120)}\n\n2 min baad link dobara bhejo.`;
     throw err;
@@ -165,7 +232,6 @@ module.exports = async (req, res) => {
                  (update.callback_query && update.callback_query.message && update.callback_query.message.chat.id);
   try {
     const queued = await handleUpdate(update);
-    // Niche select hua → turant cron trigger karo (fire-and-forget)
     if (queued) {
       const host = req.headers["x-forwarded-host"] || req.headers.host;
       triggerCron(host);
