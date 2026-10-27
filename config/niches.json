@@ -1,60 +1,60 @@
 {
-  "niches": [
-    {
-      "name": "Aivendora",
-      "ig_handle": "@aivendora.ai",
-      "ig_user_id": "17841448585308116",
-      "tg_channel": "-1004297282265",
-      "telegram": "-1004297282265",
-      "tg_handle": "@aivendora_deals"
-    },
-    {
-      "name": "Trendmind",
-      "ig_handle": "@trendmindai7",
-      "ig_user_id": "17841447830354904",
-      "tg_channel": "-1004347056585",
-      "telegram": "-1004347056585",
-      "tg_handle": "@trendmind_deals"
-    },
-    {
-      "name": "Smartshiply",
-      "ig_handle": "@smartshiply",
-      "ig_user_id": "17841480698607679",
-      "tg_channel": "-1003824798019",
-      "telegram": "-1003824798019",
-      "tg_handle": "@smartshiply_deals"
-    },
-    {
-      "name": "Nichepilot",
-      "ig_handle": "@nichepilotai",
-      "ig_user_id": "17841448654098565",
-      "tg_channel": "-1003814005889",
-      "telegram": "-1003814005889",
-      "tg_handle": "@nichepilot_deals"
-    },
-    {
-      "name": "Adbrainx",
-      "ig_handle": "@adbrainx",
-      "ig_user_id": "1784148700077293",
-      "tg_channel": "-1003551237987",
-      "telegram": "-1003551237987",
-      "tg_handle": "@adbrainx_deals"
-    },
-    {
-      "name": "Cartflow",
-      "ig_handle": "@cartflowai",
-      "ig_user_id": "17841449855333807",
-      "tg_channel": "-1003801986303",
-      "telegram": "-1003801986303",
-      "tg_handle": "@cartflow_deals"
-    },
-    {
-      "name": "Globaldrop",
-      "ig_handle": "@globaldrop.ai",
-      "ig_user_id": "17841448090636814",
-      "tg_channel": "-1003992478261",
-      "telegram": "-1003992478261",
-      "tg_handle": "@globaldrop_deals"
-    }
-  ]
+    "niches": [
+        {
+            "name": "Aivendora",
+            "ig_handle": "@aivendora.ai",
+            "ig_user_id": "17841448585308116",
+            "tg_channel": "-1004297282265",
+            "telegram": "-1004297282265",
+            "tg_handle": "@aivendora_deals"
+        },
+        {
+            "name": "Trendmind",
+            "ig_handle": "@trendmindai7",
+            "ig_user_id": "17841447830354804",
+            "tg_channel": "-1004347056585",
+            "telegram": "-1004347056585",
+            "tg_handle": "@trendmind_deals"
+        },
+        {
+            "name": "Smartshiply",
+            "ig_handle": "@smartshiply",
+            "ig_user_id": "17841480698607679",
+            "tg_channel": "-1003824798019",
+            "telegram": "-1003824798019",
+            "tg_handle": "@smartshiply_deals"
+        },
+        {
+            "name": "Nichepilot",
+            "ig_handle": "@nichepilotai",
+            "ig_user_id": "17841448654098565",
+            "tg_channel": "-1003814005889",
+            "telegram": "-1003814005889",
+            "tg_handle": "@nichepilot_deals"
+        },
+        {
+            "name": "Adbrainx",
+            "ig_handle": "@adbrainx",
+            "ig_user_id": "17841480700077293",
+            "tg_channel": "-1003551237987",
+            "telegram": "-1003551237987",
+            "tg_handle": "@adbrainx_deals"
+        },
+        {
+            "name": "Cartflow",
+            "ig_handle": "@cartflowai",
+            "ig_user_id": "17841449855333807",
+            "tg_channel": "-1003801986303",
+            "telegram": "-1003801986303",
+            "tg_handle": "@cartflow_deals"
+        },
+        {
+            "name": "Globaldrop",
+            "ig_handle": "@globaldrop.ai",
+            "ig_user_id": "17841448090636814",
+            "tg_channel": "-1003992478261",
+            "telegram": "-1003992478261",
+            "tg_handle": "@globaldrop_deals"
+        }
+    ]
 }
