@@ -1,6 +1,7 @@
-   // v2 deploy trigger
-// /api/post.js — self-contained webhook: video_url -> 7 IG + 7 FB pages
-// Kisi aur file ki zaroorat nahi. Env vars: IG_FB_JSON, POST_TO_IG, POST_TO_FB
+// v2 deploy trigger
+// /api/post.js — self-contained webhook: video_url -> 7 【entity-IG¦canonical_name=IG】 + 7 FB pages
+// Queue / Cron / Redis nahi - Turant post, 2-3 min me
+// Env vars: 【entity-IG_FB_JSON¦canonical_name=IG】, POST_TO_IG, POST_TO_FB
 export const maxDuration = 60;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,11 +33,25 @@ export default async function handler(req, res) {
 
   let accounts = [];
   try {
-    accounts = JSON.parse(process.env.IG_FB_JSON || '[]');
+    const parsed = JSON.parse(process.env.IG_FB_JSON || '[]');
+    // Dono format support: Array bhi, Object bhi
+    if (Array.isArray(parsed)) {
+      accounts = parsed;
+    } else {
+      // Object hai to: { "Adbrainx": {ig_id, token, page_id} } -> Array banao
+      accounts = Object.entries(parsed).map(([niche, v]) => ({
+        niche,
+        ig_id: v.ig_id || v.user_id || v.ig_user_id,
+        page_id: v.page_id || v.pageId,
+        page_token: v.token || v.access_token || v.page_token,
+      }));
+    }
+    // Token wale hi rakho, khaali wale hata do
+    accounts = accounts.filter(a => a.page_token && (a.ig_id || a.page_id));
   } catch (e) {
-    return res.status(500).json({ error: 'IG_FB_JSON sahi JSON nahi hai' });
+    return res.status(500).json({ error: 'IG_FB_JSON sahi JSON nahi hai: ' + e.message });
   }
-  if (!accounts.length) return res.status(500).json({ error: 'IG_FB_JSON khaali hai' });
+  if (!accounts.length) return res.status(500).json({ error: 'IG_FB_JSON khaali hai - koi valid token nahi mila' });
 
   const postToIG = (process.env.POST_TO_IG || 'true') === 'true';
   const postToFB = (process.env.POST_TO_FB || 'true') === 'true';
