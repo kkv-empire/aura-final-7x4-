@@ -22,36 +22,28 @@ jobs:
 
       - name: Photo download karo
         run: |
-          curl -L "${{ 【entity-github¦canonical_name=GitHub】.event.inputs.image_url }}" -o photo.jpg
+          curl -L "${{ github.event.inputs.image_url }}" -o photo.jpg
           ls -lh photo.jpg
 
       - name: 3 Platform ke Video banao
         run: |
-          # Music hai ya nahi check karo
           if [ -f "assets/music.mp3" ]; then
-            MUSIC="-i assets/music.mp3 -c:a aac -shortest"
-            echo "Music mil gaya"
+            echo "Music mil gaya - Music ke saath banega"
+            ffmpeg -y -loop 1 -i photo.jpg -i assets/music.mp3 -vf "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac telegram.mp4
+            ffmpeg -y -loop 1 -i photo.jpg -i assets/music.mp3 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac instagram.mp4
+            ffmpeg -y -loop 1 -i photo.jpg -i assets/music.mp3 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 10 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac youtube.mp4
           else
-            MUSIC=""
-            echo "Music nahi mila, bina music ke banega"
+            echo "Music nahi mila - Bina music ke banega"
+            ffmpeg -y -loop 1 -i photo.jpg -vf "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -c:v libx264 -pix_fmt yuv420p telegram.mp4
+            ffmpeg -y -loop 1 -i photo.jpg -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -c:v libx264 -pix_fmt yuv420p instagram.mp4
+            ffmpeg -y -loop 1 -i photo.jpg -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 10 -c:v libx264 -pix_fmt yuv420p youtube.mp4
           fi
-
-          # 1. TELEGRAM - 720x1280, 7 sec, Size chhota, jaldi jayega
-          ffmpeg -y -loop 1 -i photo.jpg $MUSIC -vf "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -c:v libx264 -pix_fmt yuv420p telegram.mp4
-
-          # 2. INSTAGRAM REELS - 1080x1920, 9:16, 7 sec, High Quality
-          ffmpeg -y -loop 1 -i photo.jpg $MUSIC -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -c:v libx264 -pix_fmt yuv420p instagram.mp4
-
-          # 3. YOUTUBE SHORTS - 1080x1920, 9:16, 10 sec, Thoda lamba
-          ffmpeg -y -loop 1 -i photo.jpg $MUSIC -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 10 -c:v libx264 -pix_fmt yuv420p youtube.mp4
-
-          # 4. 【entity-WIX¦canonical_name=WIX】 - Video nahi, sirf Photo hi kaafi hai, isliye video nahi banayenge
           ls -lh *.mp4
 
       - name: 3 Video save karo
         uses: actions/upload-artifact@v4
         with:
-          name: video-${{ 【entity-github¦canonical_name=GitHub】.event.inputs.asin }}
+          name: video-${{ github.event.inputs.asin }}
           path: |
             telegram.mp4
             instagram.mp4
