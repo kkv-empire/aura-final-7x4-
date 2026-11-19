@@ -1,10 +1,11 @@
-// api/telegram.js — SELF-DIAGNOSING + AUTO-CRON + MANUAL FIRST
-// Photo bhejte hi Manual mode ON - 【entity-Amazon¦canonical_name=Amazon】 link maangna band
+// api/telegram.js — INSTANT POST, NO QUEUE, NO CRON
+// Niche dabate hi sidha Video banake Telegram + Instagram pe post
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
 const pkey = (chat) => `aura:pending:${chat}`;
 const mkey = (chat) => `aura:manual:${chat}`;
+const ukey = (chat) => `aura:last_update:${chat}`;
 
 async function tg(method, body) {
   const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
@@ -22,52 +23,12 @@ function getRedis() {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) {
     const e = new Error("env missing");
-    e.userMessage =
-      "⚠️ <b>Upstash Redis nahi mila!</b>\n\nVercel → Settings → Environment Variables me ye 2 add karo:\n" +
-      "• UPSTASH_REDIS_REST_URL\n• UPSTASH_REDIS_REST_TOKEN\n\n(Upstash dashboard → REST API se copy karo)\n" +
-      "Fir <b>Deployments → Redeploy</b> dabao 🔄";
+    e.userMessage = "⚠️ Upstash Redis nahi mila! Vercel me UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN add karo, fir Redeploy dabao";
     throw e;
   }
   const { Redis } = require("@upstash/redis");
   _redis = new Redis({ url, token });
   return _redis;
-}
-
-async function pushProduct(p) {
-  const r = getRedis();
-  const id = "p" + Date.now().toString(36);
-  await r.hset(`aura:product:${id}`, { ...p, id, status: "queued", createdAt: new Date().toISOString() });
-  await r.rpush("aura:queue", id);
-  return id;
-}
-
-async function queueLength() {
-  return await getRedis().llen("aura:queue");
-}
-
-function triggerCron(host) {
-  if (!host) return;
-  const url = `https://${host}/api/cron`;
-  fetch(url).catch(() => {});
-}
-
-async function healthReport() {
-  const lines = ["🏥 <b>System Health:</b>"];
-  lines.push("✅ Telegram token: OK");
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    try {
-      await getRedis().ping();
-      lines.push("✅ Redis queue: OK");
-    } catch (e) {
-      lines.push("❌ Redis connect fail: " + String(e.message || e).slice(0, 80));
-    }
-  } else {
-    lines.push("❌ Redis: env variables missing");
-  }
-  lines.push("⚡ Auto-cron: ON (niche dabate hi video banana shuru)");
-  lines.push("📸 Manual mode: ON (Photo + Naam + Price se kaam)");
-  lines.push(process.env.AMAZON_TAG ? "✅ 【entity-Amazon¦canonical_name=Amazon】 tag: OK" : "⚠️ 【entity-Amazon¦canonical_name=Amazon】 tag: missing (link bina commission ke banega)");
-  return lines.join("\n");
 }
 
 function nicheButtons(asin) {
@@ -81,7 +42,7 @@ function nicheButtons(asin) {
 }
 
 function extractASIN(text) {
-  const m = String(text).match(/【entity-amazon¦canonical_name=Amazon】\.in\/(?:.*\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
+  const m = String(text).match(/amazon\.in\/(?:.*\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
   return m ? m[1].toUpperCase() : null;
 }
 
@@ -106,8 +67,16 @@ async function finishManualProduct(chatId, m) {
 }
 
 async function handleUpdate(update) {
-  let queuedProduct = false;
+  // Duplicate webhook rokne ke liye - 1 update 1 baar hi chalega
+  const updateId = String(update.update_id || "");
+  const chatIdForDedup = (update.message && update.message.chat && update.message.chat.id) || (update.callback_query && update.callback_query.message && update.callback_query.message.chat.id);
+  if (chatIdForDedup && updateId) {
+    const last = await getRedis().get(ukey(chatIdForDedup));
+    if (last === updateId) return false;
+    await getRedis().set(ukey(chatIdForDedup), updateId, { ex: 60 });
+  }
 
+  // NICHE DABAYA TO - SIDHA POST, QUEUE NAHI
   if (update.callback_query) {
     const cb = update.callback_query;
     const chatId = cb.message.chat.id;
@@ -115,75 +84,77 @@ async function handleUpdate(update) {
     const asin = parts[1], niche = parts[2];
     const p = await getRedis().get(pkey(chatId));
     if (p && p.asin === asin) {
-      await pushProduct({ ...p, niche });
-      queuedProduct = true;
       await getRedis().del(pkey(chatId));
-      const n = await queueLength();
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Video ban rahi hai 🎬" });
       await tg("editMessageText", {
         chat_id: chatId, message_id: cb.message.message_id, parse_mode: "HTML",
-        text: `✅ <b>${niche}</b> me save ho gaya!\n📦 ${String(p.title).slice(0, 100)}\n\n🎬 <b>Video abhi ban rahi hai</b> — 2-3 min me 4 platforms pe post hogi 🚀\n📊 Queue me ab: ${n} product(s)`,
+        text: `✅ <b>${niche}</b> me save ho gaya!\n📦 ${String(p.title).slice(0, 100)}\n\n🎬 <b>Video abhi ban rahi hai</b> — 5 min me post hogi 🚀`,
       });
+      // SIDHA DISTRIBUTE - QUEUE / CRON NAHI
+      try {
+        const { distribute } = require("../lib/distributor");
+        const result = await distribute({ ...p, niche });
+        await tg("sendMessage", {
+          chat_id: chatId, parse_mode: "HTML",
+          text: `✅ <b>Post ho gaya!</b>\n📦 ${String(p.title).slice(0, 100)}\n✔️ Telegram: ${result.telegram || "OK"}\n✔️ Instagram: ${result.instagram || "OK"}`,
+        });
+      } catch (e) {
+        await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `❌ <b>Post fail:</b>\n${String(e.message || e).slice(0, 300)}\n\nDobara Niche dabao ya naya product bhejo.` });
+      }
     } else {
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Session expire — dobara bhejo" });
     }
-    return queuedProduct;
+    return false;
   }
 
   const msg = update.message;
-  if (!msg) return queuedProduct;
+  if (!msg) return false;
   const chatId = msg.chat.id;
 
-  // PHOTO AAYI TO - MANUAL MODE ON, LINK MAT MAANGO
+  // PHOTO AAYI TO - MANUAL MODE ON
   if (msg.photo && msg.photo.length) {
     const photo = msg.photo[msg.photo.length - 1];
     const f = await tg("getFile", { file_id: photo.file_id });
     const fp = f && f.result && f.result.file_path;
     if (!fp) {
       await tg("sendMessage", { chat_id: chatId, text: "⚠️ Photo download nahi hui, dobara bhejo." });
-      return queuedProduct;
+      return false;
     }
     const photoUrl = `https://api.telegram.org/file/bot${TOKEN}/${fp}`;
     const caption = (msg.caption || "").trim();
     const m = await getRedis().get(mkey(chatId));
-
-    // Agar pehle se naam-price chal raha hai to photo add karo
     if (m && m.step === "photo") {
       m.photoUrl = photoUrl;
       m.step = "title";
       await getRedis().set(mkey(chatId), m, { ex: 600 });
       await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "📸 <b>Photo mil gayi!</b>\n\n📝 Ab product ka <b>naam</b> likho:" });
-      return queuedProduct;
+      return false;
     }
-    // Agar caption me naam hai to naam bhi save karo
     if (caption) {
-      await getRedis().set(mkey(chatId), { step: "price", title: caption.slice(0,200), photoUrl }, { ex: 600 });
-      await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📸 <b>Photo + Naam mil gaya!</b> - ${caption.slice(0,100)}\n\n💰 Ab <b>price</b> likho (jaise ₹499) ya <b>skip</b> likho:` });
-      return queuedProduct;
+      await getRedis().set(mkey(chatId), { step: "price", title: caption.slice(0, 200), photoUrl }, { ex: 600 });
+      await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📸 <b>Photo + Naam mil gaya!</b> - ${caption.slice(0, 100)}\n\n💰 Ab <b>price</b> likho (jaise ₹499) ya <b>skip</b> likho:` });
+      return false;
     }
-    // Nayi photo - Manual shuru
     await getRedis().set(mkey(chatId), { step: "title", photoUrl }, { ex: 600 });
     await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "📸 <b>Photo mil gayi!</b>\n\n📝 Ab product ka <b>naam</b> likho:" });
-    return queuedProduct;
+    return false;
   }
 
   const text = (msg.text || "").trim();
-  if (!text) return queuedProduct;
+  if (!text) return false;
 
   if (text === "/start") {
     await getRedis().del(mkey(chatId));
-    const health = await healthReport();
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ 📸 Product ki <b>photo bhejo</b>\n2️⃣ 📝 Naam likho\n3️⃣ 💰 Price likho\n4️⃣ Niche ka button dabao\n5️⃣ Video turant banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho`,
+      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n⚡ <b>Instant Post ON</b> - Queue / Cron band hai\n📸 Manual mode: ON (Photo + Naam + Price se kaam)\n\n1️⃣ 📸 Product ki <b>photo bhejo</b>\n2️⃣ 📝 Naam likho\n3️⃣ 💰 Price likho\n4️⃣ Niche ka button dabao\n5️⃣ Video 5 min me Telegram + Instagram pe post 🚀`,
     });
-    return queuedProduct;
+    return false;
   }
 
   if (text === "/status") {
-    const n = await queueLength();
-    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📊 Queue me: <b>${n}</b> product(s)` });
-    return queuedProduct;
+    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `⚡ Instant Mode ON - Queue band hai\nNiche dabate hi sidha post hoga, Queue check karne ki zarurat nahi.` });
+    return false;
   }
 
   const m = await getRedis().get(mkey(chatId));
@@ -192,26 +163,24 @@ async function handleUpdate(update) {
     m.step = "price";
     await getRedis().set(mkey(chatId), m, { ex: 600 });
     await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📝 <b>Naam save!</b>\n\n💰 Ab <b>price</b> likho (jaise ₹499) ya <b>skip</b> likho:` });
-    return queuedProduct;
+    return false;
   }
   if (m && m.step === "price") {
     m.price = text.toLowerCase() === "skip" ? "" : text.slice(0, 50);
     await getRedis().del(mkey(chatId));
     await finishManualProduct(chatId, m);
-    return queuedProduct;
+    return false;
   }
   if (m && m.step === "photo") {
     await tg("sendMessage", { chat_id: chatId, text: "📸 Pehle product ki photo bhejo (text nahi)." });
-    return queuedProduct;
+    return false;
   }
 
-  // LINK HAI TO AMAZON KHOLO, NAHI HAI TO MANUAL SAMJHO
   const asin = extractASIN(text);
   if (!asin) {
-    // Link nahi hai, Naam samjho - Manual mode ON
-    await getRedis().set(mkey(chatId), { step: "price", title: text.slice(0,200), photoUrl: "" }, { ex: 600 });
-    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📝 <b>Naam save!</b> - ${text.slice(0,100)}\n\n📸 Ab product ki <b>photo bhejo</b> ya 💰 <b>price</b> likho:` });
-    return queuedProduct;
+    await getRedis().set(mkey(chatId), { step: "price", title: text.slice(0, 200), photoUrl: "" }, { ex: 600 });
+    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📝 <b>Naam save!</b> - ${text.slice(0, 100)}\n\n📸 Ab product ki <b>photo bhejo</b> ya 💰 <b>price</b> likho:` });
+    return false;
   }
 
   await tg("sendMessage", { chat_id: chatId, text: "🔍 Link mil gaya… details nikaal raha hoon…" });
@@ -230,15 +199,13 @@ async function handleUpdate(update) {
       await getRedis().set(mkey(chatId), { step: "photo", asin, url: text }, { ex: 600 });
       await tg("sendMessage", {
         chat_id: chatId, parse_mode: "HTML",
-        text: `⚠️ <b>Amazon abhi block kar raha hai.</b>\n\n🔄 <b>Manual mode ON:</b> koi tension nahi!\n\n📸 Product ki <b>photo bhejo</b>\n(Amazon app kholo → product ki image save/screenshot karke yahan bhejo)`,
+        text: `⚠️ <b>Amazon abhi block kar raha hai.</b>\n\n🔄 <b>Manual mode ON:</b>\n\n📸 Product ki <b>photo bhejo</b>`,
       });
-      return queuedProduct;
+      return false;
     }
-    const err = new Error("amazon fail");
-    err.userMessage = `⚠️ Amazon page nahi khul paya.\n${String(e.message || e).slice(0, 120)}\n\n2 min baad link dobara bhejo.`;
-    throw err;
+    throw e;
   }
-  return queuedProduct;
+  return false;
 }
 
 module.exports = async (req, res) => {
@@ -247,18 +214,12 @@ module.exports = async (req, res) => {
   const chatId = (update.message && update.message.chat && update.message.chat.id) ||
                  (update.callback_query && update.callback_query.message && update.callback_query.message.chat.id);
   try {
-    const queued = await handleUpdate(update);
-    if (queued) {
-      const host = req.headers["x-forwarded-host"] || req.headers.host;
-      triggerCron(host);
-    }
+    await handleUpdate(update);
   } catch (e) {
     console.error("webhook error:", e && e.message);
     if (chatId) {
       const msg = e.userMessage || ("⚠️ Error: " + String((e && e.message) || e).slice(0, 250));
-      try {
-        await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: msg });
-      } catch (_) {}
+      try { await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: msg }); } catch (_) {}
     }
   }
   return res.status(200).send("ok");
