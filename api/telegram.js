@@ -1,5 +1,5 @@
-// api/telegram.js — SELF-DIAGNOSING + AUTO-CRON + MANUAL FALLBACK
-// Amazon block kare to user se photo + naam lekar aage badho
+// api/telegram.js — SELF-DIAGNOSING + AUTO-CRON + MANUAL FIRST
+// Photo bhejte hi Manual mode ON - 【entity-Amazon¦canonical_name=Amazon】 link maangna band
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
@@ -65,8 +65,8 @@ async function healthReport() {
     lines.push("❌ Redis: env variables missing");
   }
   lines.push("⚡ Auto-cron: ON (niche dabate hi video banana shuru)");
-  lines.push("📸 Manual mode: ON (Amazon block ho to photo se kaam)");
-  lines.push(process.env.AMAZON_TAG ? "✅ Amazon tag: OK" : "⚠️ Amazon tag: missing (link bina commission ke banega)");
+  lines.push("📸 Manual mode: ON (Photo + Naam + Price se kaam)");
+  lines.push(process.env.AMAZON_TAG ? "✅ 【entity-Amazon¦canonical_name=Amazon】 tag: OK" : "⚠️ 【entity-Amazon¦canonical_name=Amazon】 tag: missing (link bina commission ke banega)");
   return lines.join("\n");
 }
 
@@ -81,7 +81,7 @@ function nicheButtons(asin) {
 }
 
 function extractASIN(text) {
-  const m = String(text).match(/amazon\.in\/(?:.*\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
+  const m = String(text).match(/【entity-amazon¦canonical_name=Amazon】\.in\/(?:.*\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
   return m ? m[1].toUpperCase() : null;
 }
 
@@ -90,9 +90,9 @@ async function finishManualProduct(chatId, m) {
   const asin = m.asin || ("MANUAL" + Date.now().toString(36).toUpperCase());
   const p = {
     asin,
-    title: m.title,
+    title: m.title || "Product",
     price: m.price || "",
-    images: [m.photoUrl],
+    images: m.photoUrl ? [m.photoUrl] : [],
     features: [],
     amazon_link: m.url || "",
     affiliate_link: tag && m.url ? `${m.url}?tag=${tag}` : (m.url || ""),
@@ -100,7 +100,7 @@ async function finishManualProduct(chatId, m) {
   await getRedis().set(pkey(chatId), p, { ex: 600 });
   await tg("sendMessage", {
     chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-    text: `📦 <b>${p.title.slice(0, 120)}</b>\n${p.price ? `💰 ${p.price}\n` : ""}🖼️ 1 photo\n\n👇 Niche chuno:`,
+    text: `📦 <b>${p.title.slice(0, 120)}</b>\n${p.price ? `💰 ${p.price}\n` : ""}🖼️ ${p.images.length} photo\n\n👇 Niche chuno:`,
     reply_markup: { inline_keyboard: nicheButtons(p.asin) },
   });
 }
@@ -125,7 +125,7 @@ async function handleUpdate(update) {
         text: `✅ <b>${niche}</b> me save ho gaya!\n📦 ${String(p.title).slice(0, 100)}\n\n🎬 <b>Video abhi ban rahi hai</b> — 2-3 min me 4 platforms pe post hogi 🚀\n📊 Queue me ab: ${n} product(s)`,
       });
     } else {
-      await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Session expire — link dobara bhejo" });
+      await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Session expire — dobara bhejo" });
     }
     return queuedProduct;
   }
@@ -134,23 +134,36 @@ async function handleUpdate(update) {
   if (!msg) return queuedProduct;
   const chatId = msg.chat.id;
 
+  // PHOTO AAYI TO - MANUAL MODE ON, LINK MAT MAANGO
   if (msg.photo && msg.photo.length) {
+    const photo = msg.photo[msg.photo.length - 1];
+    const f = await tg("getFile", { file_id: photo.file_id });
+    const fp = f && f.result && f.result.file_path;
+    if (!fp) {
+      await tg("sendMessage", { chat_id: chatId, text: "⚠️ Photo download nahi hui, dobara bhejo." });
+      return queuedProduct;
+    }
+    const photoUrl = `https://api.telegram.org/file/bot${TOKEN}/${fp}`;
+    const caption = (msg.caption || "").trim();
     const m = await getRedis().get(mkey(chatId));
+
+    // Agar pehle se naam-price chal raha hai to photo add karo
     if (m && m.step === "photo") {
-      const photo = msg.photo[msg.photo.length - 1];
-      const f = await tg("getFile", { file_id: photo.file_id });
-      const fp = f && f.result && f.result.file_path;
-      if (!fp) {
-        await tg("sendMessage", { chat_id: chatId, text: "⚠️ Photo download nahi hui, dobara bhejo." });
-        return queuedProduct;
-      }
-      m.photoUrl = `https://api.telegram.org/file/bot${TOKEN}/${fp}`;
+      m.photoUrl = photoUrl;
       m.step = "title";
       await getRedis().set(mkey(chatId), m, { ex: 600 });
       await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "📸 <b>Photo mil gayi!</b>\n\n📝 Ab product ka <b>naam</b> likho:" });
       return queuedProduct;
     }
-    await tg("sendMessage", { chat_id: chatId, text: "📸 Photo ke liye pehle Amazon link bhejo (agar block ho to main khud mangunga)." });
+    // Agar caption me naam hai to naam bhi save karo
+    if (caption) {
+      await getRedis().set(mkey(chatId), { step: "price", title: caption.slice(0,200), photoUrl }, { ex: 600 });
+      await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📸 <b>Photo + Naam mil gaya!</b> - ${caption.slice(0,100)}\n\n💰 Ab <b>price</b> likho (jaise ₹499) ya <b>skip</b> likho:` });
+      return queuedProduct;
+    }
+    // Nayi photo - Manual shuru
+    await getRedis().set(mkey(chatId), { step: "title", photoUrl }, { ex: 600 });
+    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "📸 <b>Photo mil gayi!</b>\n\n📝 Ab product ka <b>naam</b> likho:" });
     return queuedProduct;
   }
 
@@ -162,7 +175,7 @@ async function handleUpdate(update) {
     const health = await healthReport();
     await tg("sendMessage", {
       chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true,
-      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ 【entity-Amazon¦canonical_name=Amazon】.in ka product link bhejo\n2️⃣ Niche ka button dabao\n3️⃣ Video turant banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho`,
+      text: `🤖 <b>Aura Bot LIVE hai!</b>\n\n${health}\n\n1️⃣ 📸 Product ki <b>photo bhejo</b>\n2️⃣ 📝 Naam likho\n3️⃣ 💰 Price likho\n4️⃣ Niche ka button dabao\n5️⃣ Video turant banke 4 platforms pe auto-post 🚀\n\n📊 /status — queue dekho`,
     });
     return queuedProduct;
   }
@@ -192,9 +205,12 @@ async function handleUpdate(update) {
     return queuedProduct;
   }
 
+  // LINK HAI TO AMAZON KHOLO, NAHI HAI TO MANUAL SAMJHO
   const asin = extractASIN(text);
   if (!asin) {
-    await tg("sendMessage", { chat_id: chatId, text: "🔗 Amazon.in ka product link bhejo shuru karne ke liye." });
+    // Link nahi hai, Naam samjho - Manual mode ON
+    await getRedis().set(mkey(chatId), { step: "price", title: text.slice(0,200), photoUrl: "" }, { ex: 600 });
+    await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `📝 <b>Naam save!</b> - ${text.slice(0,100)}\n\n📸 Ab product ki <b>photo bhejo</b> ya 💰 <b>price</b> likho:` });
     return queuedProduct;
   }
 
