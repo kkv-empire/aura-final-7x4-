@@ -1,5 +1,5 @@
 // api/telegram.js — INSTANT POST, NO QUEUE, NO CRON
-// Niche dabate hi sidha Video banake Telegram + Instagram pe post
+// Niche dabate hi sidha Video banake Telegram + 【entity-Instagram¦canonical_name=Instagram】 pe post
 
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
@@ -67,7 +67,6 @@ async function finishManualProduct(chatId, m) {
 }
 
 async function handleUpdate(update) {
-  // Duplicate webhook rokne ke liye - 1 update 1 baar hi chalega
   const updateId = String(update.update_id || "");
   const chatIdForDedup = (update.message && update.message.chat && update.message.chat.id) || (update.callback_query && update.callback_query.message && update.callback_query.message.chat.id);
   if (chatIdForDedup && updateId) {
@@ -76,7 +75,6 @@ async function handleUpdate(update) {
     await getRedis().set(ukey(chatIdForDedup), updateId, { ex: 60 });
   }
 
-  // NICHE DABAYA TO - SIDHA POST, QUEUE NAHI
   if (update.callback_query) {
     const cb = update.callback_query;
     const chatId = cb.message.chat.id;
@@ -90,13 +88,12 @@ async function handleUpdate(update) {
         chat_id: chatId, message_id: cb.message.message_id, parse_mode: "HTML",
         text: `✅ <b>${niche}</b> me save ho gaya!\n📦 ${String(p.title).slice(0, 100)}\n\n🎬 <b>Video abhi ban rahi hai</b> — 5 min me post hogi 🚀`,
       });
-      // SIDHA DISTRIBUTE - QUEUE / CRON NAHI
       try {
         const { distribute } = require("../lib/distributor");
         const result = await distribute({ ...p, niche });
         await tg("sendMessage", {
           chat_id: chatId, parse_mode: "HTML",
-          text: `✅ <b>Post ho gaya!</b>\n📦 ${String(p.title).slice(0, 100)}\n✔️ Telegram: ${result.telegram || "OK"}\n✔️ Instagram: ${result.instagram || "OK"}`,
+          text: `✅ <b>Post ho gaya!</b>\n📦 Product ${p.asin}\n✔️ Telegram: ${result.telegram || "OK"}\n✔️ Instagram: ${result.instagram || "OK"}\n✔️ YouTube: ${result.youtube || "OK"}\n✔️ Wix: ${result.wix || "OK"}`,
         });
       } catch (e) {
         await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `❌ <b>Post fail:</b>\n${String(e.message || e).slice(0, 300)}\n\nDobara Niche dabao ya naya product bhejo.` });
@@ -111,7 +108,6 @@ async function handleUpdate(update) {
   if (!msg) return false;
   const chatId = msg.chat.id;
 
-  // PHOTO AAYI TO - MANUAL MODE ON
   if (msg.photo && msg.photo.length) {
     const photo = msg.photo[msg.photo.length - 1];
     const f = await tg("getFile", { file_id: photo.file_id });
