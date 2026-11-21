@@ -1,18 +1,18 @@
-// api/debug.js - Sirf Env Check ke liye, Secret nahi dikhayega
-module.exports = async (req, res) => {
-  const a = process.env.YT_REFRESH_JSON || "";
-  const b = process.env.YT_JSON || "";
-  let ka = [], kb = [];
-  try { ka = Object.keys(JSON.parse(a || "{}")); } catch (e) { ka = ["PARSE_FAIL"]; }
-  try { kb = Object.keys(JSON.parse(b || "{}")); } catch (e) { kb = ["PARSE_FAIL"]; }
-  return res.status(200).json({
-    has_YT_REFRESH_JSON: a.length > 0,
-    len_YT_REFRESH_JSON: a.length,
-    keys_YT_REFRESH_JSON: ka,
-    has_YT_JSON: b.length > 0,
-    len_YT_JSON: b.length,
-    keys_YT_JSON: kb,
+export default function handler(req, res) {
+  const check = (k) => {
+    const v = process.env[k] || "";
+    return { has: !!v, len: v.length, start: v.slice(0, 10) };
+  };
+  res.status(200).json({
+    YT_AIVENDORA: check("YT_AIVENDORA"),
+    YT_TRENDMIND: check("YT_TRENDMIND"),
+    YT_SMARTSHIPLY: check("YT_SMARTSHIPLY"),
+    YT_NICHEPILOT: check("YT_NICHEPILOT"),
+    YT_ADBRAINX: check("YT_ADBRAINX"),
+    YT_CARTFLOW: check("YT_CARTFLOW"),
+    YT_GLOBALDROP: check("YT_GLOBALDROP"),
+    YT_CLIENT_ID: check("YT_CLIENT_ID"),
+    YT_CLIENT_SECRET: check("YT_CLIENT_SECRET"),
     has_TG_BOT_TOKEN: !!process.env.TG_BOT_TOKEN,
-    has_GH_TOKEN: !!process.env.GH_TOKEN,
   });
-};
+}
