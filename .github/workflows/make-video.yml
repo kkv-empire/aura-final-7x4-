@@ -1,51 +1,37 @@
-name: Make Video
-
+name: Make Video + YT Upload
 on:
   workflow_dispatch:
     inputs:
-      image_url:
-        description: 'Product Image URL'
-        required: true
-      title:
-        description: 'Product Title'
-        required: true
-      asin:
-        description: 'Product ASIN'
-        required: true
-
+      image_url: { required: true, type: string }
+      title: { required: true, type: string }
+      asin: { required: true, type: string }
+      niche: { required: false, type: string, default: "aivendora" }
+      caption: { required: false, type: string, default: "" }
 jobs:
-  make:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Code lao
-        uses: actions/checkout@v4
-
-      - name: Photo download karo
+      - uses: actions/checkout@v4
+      - name: Make Video from Photo
         run: |
-          curl -L "${{ github.event.inputs.image_url }}" -o photo.jpg
-          ls -lh photo.jpg
-
-      - name: 3 Platform ke Video banao
+          curl -L "${{ inputs.image_url }}" -o photo.jpg
+          ffmpeg -y -loop 1 -i photo.jpg -t 6 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -pix_fmt yuv420p video.mp4
+      - name: Upload to YouTube
+        env:
+          YT_REFRESH: ${{ secrets[format('YT_{0}', inputs.niche)] }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
         run: |
-          if [ -f "assets/music.mp3" ]; then
-            echo "Music mil gaya - Music ke saath banega"
-            ffmpeg -y -loop 1 -i photo.jpg -i assets/music.mp3 -vf "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac telegram.mp4
-            ffmpeg -y -loop 1 -i photo.jpg -i assets/music.mp3 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac instagram.mp4
-            ffmpeg -y -loop 1 -i photo.jpg -i assets/music.mp3 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 10 -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac youtube.mp4
-          else
-            echo "Music nahi mila - Bina music ke banega"
-            ffmpeg -y -loop 1 -i photo.jpg -vf "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -c:v libx264 -pix_fmt yuv420p telegram.mp4
-            ffmpeg -y -loop 1 -i photo.jpg -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 7 -c:v libx264 -pix_fmt yuv420p instagram.mp4
-            ffmpeg -y -loop 1 -i photo.jpg -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black" -t 10 -c:v libx264 -pix_fmt yuv420p youtube.mp4
-          fi
-          ls -lh *.mp4
-
-      - name: 3 Video save karo
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-${{ github.event.inputs.asin }}
-          path: |
-            telegram.mp4
-            instagram.mp4
-            youtube.mp4
-          retention-days: 1
+          node -e "
+          const fs=require('fs');
+          (async()=>{
+            const {uploadVideoToYT}=require('./lib/youtube.js');
+            // Env ko Vercel jaisa banao
+            process.env['YT_'+process.argv[1].toUpperCase()]=process.env.YT_REFRESH;
+            process.env.YT_CLIENT_ID=process.env.YT_CLIENT_ID;
+            process.env.YT_CLIENT_SECRET=process.env.YT_CLIENT_SECRET;
+            const buf=fs.readFileSync('video.mp4');
+            const id=await uploadVideoToYT({niche:process.argv[1], title:process.argv[2], description:process.argv[3], videoBuffer:buf});
+            console.log('YT UPLOADED:'+id);
+          })();
+          " "${{ inputs.niche }}" "${{ inputs.title }}" "${{ inputs.caption }}"
