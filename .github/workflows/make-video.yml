@@ -8,30 +8,43 @@ on:
       niche: { required: false, type: string, default: "aivendora" }
       caption: { required: false, type: string, default: "" }
 jobs:
-  build:
+  make:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Make Video from Photo
         run: |
           curl -L "${{ inputs.image_url }}" -o photo.jpg
           ffmpeg -y -loop 1 -i photo.jpg -t 6 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -pix_fmt yuv420p video.mp4
+          ls -lh video.mp4
       - name: Upload to YouTube
         env:
-          YT_REFRESH: ${{ secrets[format('YT_{0}', inputs.niche)] }}
+          YT_AIVENDORA: ${{ secrets.YT_AIVENDORA }}
+          YT_TRENDMIND: ${{ secrets.YT_TRENDMIND }}
+          YT_SMARTSHIPLY: ${{ secrets.YT_SMARTSHIPLY }}
+          YT_NICHEPILOT: ${{ secrets.YT_NICHEPILOT }}
+          YT_ADBRAINX: ${{ secrets.YT_ADBRAINX }}
+          YT_CARTFLOW: ${{ secrets.YT_CARTFLOW }}
+          YT_GLOBALDROP: ${{ secrets.YT_GLOBALDROP }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          NICHE_INPUT: ${{ inputs.niche }}
+          TITLE_INPUT: ${{ inputs.title }}
+          CAPTION_INPUT: ${{ inputs.caption }}
         run: |
           node -e "
           const fs=require('fs');
           (async()=>{
             const {uploadVideoToYT}=require('./lib/youtube.js');
-            // Env ko Vercel jaisa banao
-            process.env['YT_'+process.argv[1].toUpperCase()]=process.env.YT_REFRESH;
-            process.env.YT_CLIENT_ID=process.env.YT_CLIENT_ID;
-            process.env.YT_CLIENT_SECRET=process.env.YT_CLIENT_SECRET;
+            const niche=process.env.NICHE_INPUT||'aivendora';
             const buf=fs.readFileSync('video.mp4');
-            const id=await uploadVideoToYT({niche:process.argv[1], title:process.argv[2], description:process.argv[3], videoBuffer:buf});
+            const id=await uploadVideoToYT({niche:niche, title:process.env.TITLE_INPUT, description:process.env.CAPTION_INPUT||process.env.TITLE_INPUT, videoBuffer:buf});
             console.log('YT UPLOADED:'+id);
           })();
-          " "${{ inputs.niche }}" "${{ inputs.title }}" "${{ inputs.caption }}"
+          "
