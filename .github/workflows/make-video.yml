@@ -20,8 +20,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Make Video from Photo
         run: |
-          curl -L "${{ inputs.image_url }}" -o photo.jpg
-          ffmpeg -y -loop 1 -i photo.jpg -t 6 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -pix_fmt yuv420p video.mp4
+          curl -L --max-time 25 --retry 2 "${{ inputs.image_url }}" -o photo.jpg || echo "CURL FAIL"
+          ls -lh photo.jpg
+          file photo.jpg
+          timeout 60 ffmpeg -y -loop 1 -i photo.jpg -t 6 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -pix_fmt yuv420p video.mp4 || echo "FFMPEG FAIL"
           ls -lh video.mp4
       - name: Upload to YouTube
         env:
