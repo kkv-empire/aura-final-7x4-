@@ -1,0 +1,24 @@
+module.exports = async (req, res) => {
+  const token = process.env.GH_TOKEN || "";
+  const repo = process.env.GH_REPO || "";
+  let out = {
+    hasToken: !!token,
+    tokenLen: token.length,
+    tokenStart: token.slice(0, 4),
+    repo: repo,
+    repoLen: repo.length
+  };
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/make-video.yml/dispatches`, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs: { image_url: "https://example.com/test.jpg", title: "TEST", asin: "TEST", niche: "nichepilot", caption: "test" } })
+    });
+    const t = await r.text().catch(() => "");
+    out.dispatchStatus = r.status;
+    out.dispatchBody = t.slice(0, 300);
+  } catch (e) {
+    out.dispatchError = e.message;
+  }
+  res.status(200).json(out);
+};
