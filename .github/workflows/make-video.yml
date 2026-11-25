@@ -1,52 +1,31 @@
-name: Make Video + YT Upload
+name: Make Video
 on:
   workflow_dispatch:
     inputs:
-      image_url: { required: true, type: string }
-      title: { required: true, type: string }
-      asin: { required: true, type: string }
-      niche: { required: false, type: string, default: "aivendora" }
-      caption: { required: false, type: string, default: "" }
+      image_url: { description: "Image URL", required: true, type: string }
+      title: { description: "Title", required: true, type: string }
+      asin: { description: "ASIN", required: true, type: string }
+      niche: { description: "Niche", required: true, type: string }
+      caption: { description: "Caption with Buy Link", required: true, type: string }
 jobs:
   make:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download Image
+        run: curl -L "${{ inputs.image_url }}" -o product.jpg
+      - name: Make Short Video with Free Music
+        run: |
+          ffmpeg -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,zoompan=z='min(zoom+0.0015,1.3)':d=375:s=1080x1920" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
+      - name: Upload to YouTube Shorts - Description me Clickable Link
+        uses: actions/upload-youtube-video@v1
         with:
-          node-version: 20
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Make Video from Photo
-        run: |
-          curl -L --max-time 25 --retry 2 "${{ inputs.image_url }}" -o photo.jpg || echo "CURL FAIL"
-          ls -lh photo.jpg
-          file photo.jpg
-          timeout 60 ffmpeg -y -loop 1 -i photo.jpg -t 6 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -pix_fmt yuv420p video.mp4 || echo "FFMPEG FAIL"
-          ls -lh video.mp4
-      - name: Upload to YouTube
+          title: ${{ inputs.title }}
+          description: ${{ inputs.caption }}
+          video-file: video.mp4
+          privacy: public
+          shorts: true
         env:
-          YT_AIVENDORA: ${{ secrets.YT_AIVENDORA }}
-          YT_TRENDMIND: ${{ secrets.YT_TRENDMIND }}
-          YT_SMARTSHIPLY: ${{ secrets.YT_SMARTSHIPLY }}
-          YT_NICHEPILOT: ${{ secrets.YT_NICHEPILOT }}
-          YT_ADBRAINX: ${{ secrets.YT_ADBRAINX }}
-          YT_CARTFLOW: ${{ secrets.YT_CARTFLOW }}
-          YT_GLOBALDROP: ${{ secrets.YT_GLOBALDROP }}
-          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
-          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
-          NICHE_INPUT: ${{ inputs.niche }}
-          TITLE_INPUT: ${{ inputs.title }}
-          CAPTION_INPUT: ${{ inputs.caption }}
-        run: |
-          node -e "
-          const fs=require('fs');
-          (async()=>{
-            const {uploadVideoToYT}=require('./lib/youtube.js');
-            const niche=process.env.NICHE_INPUT||'aivendora';
-            const buf=fs.readFileSync('video.mp4');
-            const id=await uploadVideoToYT({niche:niche, title:process.env.TITLE_INPUT, description:process.env.CAPTION_INPUT||process.env.TITLE_INPUT, videoBuffer:buf});
-            console.log('YT UPLOADED:'+id);
-          })();
-          "
+          YOUTUBE_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
