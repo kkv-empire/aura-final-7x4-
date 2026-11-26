@@ -20,27 +20,68 @@ jobs:
         run: |
           curl -L "${{ inputs.image_url }}" -o product.jpg
           ls -lh product.jpg
-          file product.jpg
-      - name: Make 15s Video - Simple - No zoompan Fail
+      - name: Make 15s Video
         run: |
           ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
           ls -lh video.mp4
-      - name: Upload to YouTube Shorts - Python API
+      - name: Upload to YouTube Shorts - All Token Names Try
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_JSON: ${{ secrets.YT_REFRESH_JSON }}
+          YT_JSON: ${{ secrets.YT_JSON }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          YT_AIVENDORA: ${{ secrets.YT_AIVENDORA }}
+          YT_TRENDMIND: ${{ secrets.YT_TRENDMIND }}
+          YT_NICHEPILOT: ${{ secrets.YT_NICHEPILOT }}
           VIDEO_TITLE: ${{ inputs.title }}
           VIDEO_DESC: ${{ inputs.caption }}
+          NICHE: ${{ inputs.niche }}
         run: |
           python3 - << 'PY'
-          import os, json, pickle
+          import os, json
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
           from google.oauth2.credentials import Credentials
-          creds = Credentials(None, refresh_token=os.environ['YT_REFRESH_TOKEN'], token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
+          niche = os.environ.get('NICHE','').lower()
+          token = ""
+          # 1. Direct Token
+          if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN']
+          # 2. Niche wala Secret - YT_AIVENDORA jaisa
+          if not token:
+            nk = "YT_" + niche.upper()
+            if os.environ.get(nk): token = os.environ[nk]
+          # 3. JSON wale Secrets
+          for k in ['YT_REFRESH_JSON','YT_JSON']:
+            if token: break
+            j = os.environ.get(k,'')
+            if not j: continue
+            try:
+              data = json.loads(j)
+              if isinstance(data, dict):
+                if niche in data:
+                  v = data[niche]
+                  token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
+                elif 'refresh_token' in data:
+                  token = data['refresh_token']
+                else:
+                  # Koi bhi pehla Token
+                  for v in data.values():
+                    token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
+                    if token: break
+              elif isinstance(data, str) and len(data) > 20:
+                token = data
+            except Exception as e:
+              print("JSON FAIL", k, str(e)[:100])
+          print("NICHE:", niche)
+          print("TOKEN FOUND:", "YES len=" + str(len(token)) if token else "NO - Secrets me Token nahi hai")
+          print("CLIENT_ID LEN:", len(os.environ.get('YT_CLIENT_ID','')))
+          if not token:
+            print("FIX: GitHub > Repo > Settings > Secrets > YT_REFRESH_TOKEN me 1 Niche ka Refresh Token daalo")
+            raise SystemExit(1)
+          creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
           yt = build('youtube','v3', credentials=creds)
-          req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':os.environ['VIDEO_TITLE'][:100],'description':os.environ['VIDEO_DESC'],'categoryId':'27','tags':['amazonfinds','onlineshopping']},'status':{'privacyStatus':'public','madeForKids':False,'selfDeclaredMadeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
+          req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':os.environ['VIDEO_TITLE'][:100],'description':os.environ['VIDEO_DESC'],'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
           print(req.execute())
           print("YT SHORTS UPLOADED OK")
           PY
