@@ -9,6 +9,7 @@ on:
       caption: { description: "Caption", required: true, type: string }
       ig_id: { description: "IG ID", required: false, type: string }
       ig_token: { description: "IG Token", required: false, type: string }
+      price: { description: "Price Text", required: false, type: string }
 jobs:
   make:
     runs-on: ubuntu-latest
@@ -16,17 +17,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install ffmpeg + Python Lib
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core > /dev/null
           pip install -q google-api-python-client google-auth-oauthlib google-auth-httplib2 requests
       - name: Download Real Image
         run: |
           curl -L "${{ inputs.image_url }}" -o product.jpg
           ls -lh product.jpg
-      - name: Make 15s Video
+      - name: Make PREMIUM Ad Video - Blur BG + Title + Price + Shop Now
+        env:
+          TITLE: ${{ inputs.title }}
+          PRICE: ${{ inputs.price }}
         run: |
-          ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
+          TITLE_SHORT=$(echo "$TITLE" | cut -c1-60)
+          echo "$TITLE_SHORT" > title.txt
+          echo "$PRICE" > price.txt
+          cat title.txt
+          cat price.txt
+          ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=40[bg];[b]scale=900:-1:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2-80,zoompan=z='min(zoom+0.0012,1.15)':d=375:s=1080x1920:fps=25,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Bio / Comment':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=1,fade=t=out:st=14:d=1,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
           ls -lh video.mp4
-      - name: Upload YT Shorts + Comment Link + Insta Reels
+      - name: Upload YT Shorts + Comment Clickable Link + Insta Reels
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
@@ -51,9 +60,11 @@ jobs:
           niche = os.environ.get('NICHE','').lower()
           desc = os.environ.get('VIDEO_DESC','')
           title = os.environ.get('VIDEO_TITLE','')[:100]
+          # Link nikalo - Description me sabse Upar wala Link
           m = re.search(r'https://\S+', desc)
           link = m.group(0) if m else ""
-          print("LINK:", link[:60] if link else "NO LINK")
+          print("LINK:", link[:80] if link else "NO LINK")
+          # YT Token - Niche ka nahi mila to PEHLA Token le lo
           token = ""
           if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN']
           if not token:
@@ -71,7 +82,7 @@ jobs:
                   token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
                 elif 'refresh_token' in data:
                   token = data['refresh_token']
-                else:
+                if not token:
                   for v in data.values():
                     token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
                     if token: break
@@ -83,30 +94,49 @@ jobs:
             try:
               creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
               yt = build('youtube','v3', credentials=creds)
+              # Description me Link sabse Upar - Full Page pe kholte hi Blue dikhega
               req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':title,'description':desc,'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
               res = req.execute()
               yt_id = res['id']
               print("YT SHORTS OK", yt_id)
+              # CLICKABLE LINK - Comment me - Shorts Player me bhi Blue + Clickable hoga
               if link:
                 try:
                   c = yt.commentThreads().insert(part='snippet', body={'snippet':{'videoId':yt_id,'topLevelComment':{'snippet':{'textOriginal':'👉 Buy Link: ' + link + '\n#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.'}}}}).execute()
-                  print("YT COMMENT OK", c['id'])
+                  print("YT COMMENT OK - Link Clickable", c['id'])
                 except Exception as e:
                   print("YT COMMENT FAIL", str(e)[:300])
             except Exception as e:
               print("YT UPLOAD FAIL", str(e)[:500])
           else:
             print("YT SKIPPED - Token nahi mila")
-          # --- Insta Reels - IG ID/Token Distributor se aaya hai - GH Secrets ki zarurat nahi ---
+          # Insta Reels - CLICKABLE LINK = Bio me 4 Links - Caption me Link in Bio
           try:
             ig_id = os.environ.get('IG_ID','')
             ig_token = os.environ.get('IG_TOKEN','')
-            print("IG ID FOUND:", "YES" if ig_id else "NO - Distributor se IG ID nahi aaya")
+            print("IG ID FOUND:", "YES" if ig_id else "NO")
             if ig_id and ig_token:
-              with open('video.mp4','rb') as f:
-                r = requests.post('https://0x0.st', files={'file':('video.mp4', f, 'video/mp4')}, timeout=60)
-              pub_url = r.text.strip()
-              print("PUBLIC VIDEO URL:", pub_url[:80])
+              pub_url = ""
+              # Catbox - 0x0.st band hai, isliye Catbox
+              try:
+                with open('video.mp4','rb') as f:
+                  r = requests.post('https://catbox.moe/user/api.php', data={'reqtype':'fileupload'}, files={'fileToUpload':('video.mp4', f, 'video/mp4')}, timeout=90)
+                if r.text.strip().startswith('https://'): pub_url = r.text.strip(); print("CATBOX OK", pub_url[:80])
+              except Exception as e: print("CATBOX FAIL", str(e)[:200])
+              if not pub_url:
+                try:
+                  with open('video.mp4','rb') as f:
+                    r = requests.post('https://tmpfiles.org/api/v1/upload', files={'file':('video.mp4', f, 'video/mp4')}, timeout=90)
+                  j = r.json()
+                  if j.get('url'): pub_url = j['url'].replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/'); print("TMPFILES OK", pub_url[:80])
+                except Exception as e: print("TMPFILES FAIL", str(e)[:200])
+              if not pub_url:
+                try:
+                  with open('video.mp4','rb') as f:
+                    r = requests.put('https://transfer.sh/video.mp4', data=f, timeout=90)
+                  if r.text.strip().startswith('https://'): pub_url = r.text.strip(); print("TRANSFER OK", pub_url[:80])
+                except Exception as e: print("TRANSFER FAIL", str(e)[:200])
+              print("PUBLIC VIDEO URL:", pub_url[:80] if pub_url else "NONE")
               if pub_url.startswith('http'):
                 ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
                 cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", json={"media_type":"REELS","video_url":pub_url,"caption":ig_caption,"access_token":ig_token}, timeout=30).json()
