@@ -6,26 +6,41 @@ on:
       title: { description: "Title", required: true, type: string }
       asin: { description: "ASIN", required: true, type: string }
       niche: { description: "Niche", required: true, type: string }
-      caption: { description: "Caption with Buy Link on separate line", required: true, type: string }
+      caption: { description: "Caption", required: true, type: string }
 jobs:
   make:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download Real Image
-        run: curl -L "${{ inputs.image_url }}" -o product.jpg
-      - name: Make Short Video - Real Image + Free Music
+      - name: Install ffmpeg + Python Lib
         run: |
-          ffmpeg -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,zoompan=z='min(zoom+0.0015,1.3)':d=375:s=1080x1920" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
-      - name: Upload to YouTube Shorts - Description me Clickable Link
-        uses: actions/upload-youtube-video@v1
-        with:
-          title: ${{ inputs.title }}
-          description: ${{ inputs.caption }}
-          video-file: video.mp4
-          privacy: public
-          shorts: true
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
+          pip install -q google-api-python-client google-auth-oauthlib google-auth-httplib2
+      - name: Download Real Image
+        run: |
+          curl -L "${{ inputs.image_url }}" -o product.jpg
+          ls -lh product.jpg
+          file product.jpg
+      - name: Make 15s Video - Simple - No zoompan Fail
+        run: |
+          ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
+          ls -lh video.mp4
+      - name: Upload to YouTube Shorts - Python API
         env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          VIDEO_TITLE: ${{ inputs.title }}
+          VIDEO_DESC: ${{ inputs.caption }}
+        run: |
+          python3 - << 'PY'
+          import os, json, pickle
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from google.oauth2.credentials import Credentials
+          creds = Credentials(None, refresh_token=os.environ['YT_REFRESH_TOKEN'], token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
+          yt = build('youtube','v3', credentials=creds)
+          req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':os.environ['VIDEO_TITLE'][:100],'description':os.environ['VIDEO_DESC'],'categoryId':'27','tags':['amazonfinds','onlineshopping']},'status':{'privacyStatus':'public','madeForKids':False,'selfDeclaredMadeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
+          print(req.execute())
+          print("YT SHORTS UPLOADED OK")
+          PY
