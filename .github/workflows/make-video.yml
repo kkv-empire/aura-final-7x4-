@@ -15,7 +15,7 @@ jobs:
       - name: Install ffmpeg + Python Lib
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null
-          pip install -q google-api-python-client google-auth-oauthlib google-auth-httplib2
+          pip install -q google-api-python-client google-auth-oauthlib google-auth-httplib2 requests
       - name: Download Real Image
         run: |
           curl -L "${{ inputs.image_url }}" -o product.jpg
@@ -24,7 +24,7 @@ jobs:
         run: |
           ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest video.mp4
           ls -lh video.mp4
-      - name: Upload to YouTube Shorts - All Token Names Try
+      - name: Upload YT Shorts + Comment Link + Insta Reels
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
@@ -34,24 +34,30 @@ jobs:
           YT_AIVENDORA: ${{ secrets.YT_AIVENDORA }}
           YT_TRENDMIND: ${{ secrets.YT_TRENDMIND }}
           YT_NICHEPILOT: ${{ secrets.YT_NICHEPILOT }}
+          IG_FB_JSON: ${{ secrets.IG_FB_JSON }}
           VIDEO_TITLE: ${{ inputs.title }}
           VIDEO_DESC: ${{ inputs.caption }}
           NICHE: ${{ inputs.niche }}
+          IMAGE_URL: ${{ inputs.image_url }}
         run: |
           python3 - << 'PY'
-          import os, json
+          import os, json, time, re, requests
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
           from google.oauth2.credentials import Credentials
           niche = os.environ.get('NICHE','').lower()
+          desc = os.environ.get('VIDEO_DESC','')
+          title = os.environ.get('VIDEO_TITLE','')[:100]
+          # --- Link nikalo ---
+          m = re.search(r'https://\S+', desc)
+          link = m.group(0) if m else ""
+          print("LINK:", link[:60] if link else "NO LINK")
+          # --- YT Token ---
           token = ""
-          # 1. Direct Token
           if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN']
-          # 2. Niche wala Secret - YT_AIVENDORA jaisa
           if not token:
             nk = "YT_" + niche.upper()
             if os.environ.get(nk): token = os.environ[nk]
-          # 3. JSON wale Secrets
           for k in ['YT_REFRESH_JSON','YT_JSON']:
             if token: break
             j = os.environ.get(k,'')
@@ -65,23 +71,71 @@ jobs:
                 elif 'refresh_token' in data:
                   token = data['refresh_token']
                 else:
-                  # Koi bhi pehla Token
                   for v in data.values():
                     token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
                     if token: break
-              elif isinstance(data, str) and len(data) > 20:
-                token = data
             except Exception as e:
               print("JSON FAIL", k, str(e)[:100])
-          print("NICHE:", niche)
-          print("TOKEN FOUND:", "YES len=" + str(len(token)) if token else "NO - Secrets me Token nahi hai")
-          print("CLIENT_ID LEN:", len(os.environ.get('YT_CLIENT_ID','')))
-          if not token:
-            print("FIX: GitHub > Repo > Settings > Secrets > YT_REFRESH_TOKEN me 1 Niche ka Refresh Token daalo")
-            raise SystemExit(1)
-          creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
-          yt = build('youtube','v3', credentials=creds)
-          req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':os.environ['VIDEO_TITLE'][:100],'description':os.environ['VIDEO_DESC'],'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
-          print(req.execute())
-          print("YT SHORTS UPLOADED OK")
+          print("YT TOKEN:", "YES len="+str(len(token)) if token else "NO")
+          # --- YT Upload ---
+          yt_id = ""
+          if token:
+            try:
+              creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
+              yt = build('youtube','v3', credentials=creds)
+              req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':title,'description':desc,'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
+              res = req.execute()
+              yt_id = res['id']
+              print("YT SHORTS OK", yt_id)
+              # Comment me Clickable Link - Yahi Shorts me Blue hoga
+              if link:
+                try:
+                  c = yt.commentThreads().insert(part='snippet', body={'snippet':{'videoId':yt_id,'topLevelComment':{'snippet':{'textOriginal':'👉 Buy Link: ' + link + '\n#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.'}}}}).execute()
+                  print("YT COMMENT OK", c['id'])
+                except Exception as e:
+                  print("YT COMMENT FAIL", str(e)[:300])
+            except Exception as e:
+              print("YT UPLOAD FAIL", str(e)[:500])
+          else:
+            print("YT SKIPPED - Token nahi mila")
+          # --- 【entity-Insta¦canonical_name=Insta】 Reels Upload ---
+          # Video ko Public URL pe daalo - 0x0.st - Fir us URL se Reels banao
+          try:
+            ig_json = os.environ.get('IG_FB_JSON','')
+            if not ig_json:
+              print("IG SKIPPED - IG_FB_JSON Secret GitHub me nahi hai - GitHub > Settings > Secrets me IG_FB_JSON daalo")
+            else:
+              ig_map = json.loads(ig_json)
+              key = next((k for k in ig_map.keys() if k.lower()==niche), None)
+              entry = ig_map.get(key,{}) if key else {}
+              ig_id = entry.get('ig_id','')
+              ig_token = entry.get('page_token','') or entry.get('token','')
+              print("IG ID FOUND:", "YES" if ig_id else "NO")
+              if ig_id and ig_token:
+                # Video ko Public karo
+                with open('video.mp4','rb') as f:
+                  r = requests.post('https://0x0.st', files={'file':('video.mp4', f, 'video/mp4')}, timeout=60)
+                pub_url = r.text.strip()
+                print("PUBLIC VIDEO URL:", pub_url[:80])
+                if pub_url.startswith('http'):
+                  # Reels Container banao - Video URL se
+                  ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
+                  cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", json={"media_type":"REELS","video_url":pub_url,"caption":ig_caption,"access_token":ig_token}, timeout=30).json()
+                  print("IG REELS CONTAINER:", str(cr)[:300])
+                  if 'id' in cr:
+                    time.sleep(20)
+                    # Status check - Video Process hone do
+                    for i in range(6):
+                      st = requests.get(f"https://graph.facebook.com/v21.0/{cr['id']}?fields=status_code&access_token={ig_token}", timeout=30).json()
+                      print("IG STATUS:", st)
+                      if st.get('status_code')=='FINISHED': break
+                      time.sleep(10)
+                    pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":cr['id'],"access_token":ig_token}, timeout=30).json()
+                    print("IG REELS PUBLISHED:", pub)
+                  else:
+                    print("IG REELS FAIL - Container nahi bana")
+                else:
+                  print("IG REELS FAIL - Public URL nahi mili")
+          except Exception as e:
+            print("IG REELS FAIL", str(e)[:500])
           PY
