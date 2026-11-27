@@ -23,7 +23,6 @@ jobs:
         run: |
           curl -L "${{ inputs.image_url }}" -o product.jpg
           ls -lh product.jpg
-      # FIX 1 - VIDEO CLEAR - No Zoompan, No Blur - Full HD Sharp - CRF 18
       - name: Make CLEAR Premium Video - No Blur No Zoom
         env:
           TITLE: ${{ inputs.title }}
@@ -46,6 +45,10 @@ jobs:
           YT_AIVENDORA: ${{ secrets.YT_AIVENDORA }}
           YT_TRENDMIND: ${{ secrets.YT_TRENDMIND }}
           YT_NICHEPILOT: ${{ secrets.YT_NICHEPILOT }}
+          YT_ADBRAINX: ${{ secrets.YT_ADBRAINX }}
+          YT_SMARTSHIPLY: ${{ secrets.YT_SMARTSHIPLY }}
+          YT_CARTFLOW: ${{ secrets.YT_CARTFLOW }}
+          YT_GLOBALDROP: ${{ secrets.YT_GLOBALDROP }}
           IG_ID: ${{ inputs.ig_id }}
           IG_TOKEN: ${{ inputs.ig_token }}
           VIDEO_TITLE: ${{ inputs.title }}
@@ -64,30 +67,31 @@ jobs:
           m = re.search(r'https://\S+', desc)
           link = m.group(0) if m else ""
           print("LINK:", link[:80] if link else "NO LINK")
+          # FIX 1 - YT TOKEN - Niche se Match mat karo - JSON me kahi bhi refresh_token ho, le lo
           token = ""
-          if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN']
+          if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN'].strip()
           if not token:
-            nk = "YT_" + niche.upper()
-            if os.environ.get(nk): token = os.environ[nk]
-          for k in ['YT_REFRESH_JSON','YT_JSON']:
-            if token: break
-            j = os.environ.get(k,'')
-            if not j: continue
-            try:
-              data = json.loads(j)
-              if isinstance(data, dict):
-                if niche in data:
-                  v = data[niche]
-                  token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
-                elif 'refresh_token' in data:
-                  token = data['refresh_token']
-                if not token:
-                  for v in data.values():
-                    token = v.get('refresh_token','') if isinstance(v, dict) else str(v)
-                    if token: break
-            except Exception as e:
-              print("JSON FAIL", k, str(e)[:100])
+            for k, v in os.environ.items():
+              if k.upper() == ("YT_" + niche.upper()):
+                token = (v or "").strip()
+                if token: print("YT TOKEN FOUND in", k); break
+          if not token:
+            for k in ['YT_REFRESH_JSON','YT_JSON']:
+              j = os.environ.get(k,'')
+              if not j: continue
+              mm = re.search(r'"refresh_token"\s*:\s*"([^"]+)"', j)
+              if mm:
+                token = mm.group(1)
+                print("YT TOKEN FOUND in", k, "len=", len(token))
+                break
+          if not token:
+            for k in ['YT_REFRESH_JSON','YT_JSON']:
+              j = (os.environ.get(k,'') or "").strip()
+              if j and j.startswith("1//") and len(j) > 20:
+                token = j
+                break
           print("YT TOKEN:", "YES len="+str(len(token)) if token else "NO")
+          print("YT NICHE:", niche, "| YT CLIENT_ID:", "YES" if os.environ.get('YT_CLIENT_ID') else "NO")
           yt_id = ""
           if token:
             try:
@@ -97,7 +101,6 @@ jobs:
               res = req.execute()
               yt_id = res['id']
               print("YT SHORTS OK", yt_id)
-              # FIX 1 - YT LINK - Comment me Link - Player me Link kabhi Blue nahi hota - Comment + Full Description me hi Blue hota hai
               if link:
                 try:
                   c = yt.commentThreads().insert(part='snippet', body={'snippet':{'videoId':yt_id,'topLevelComment':{'snippet':{'textOriginal':'👉 Buy Link: ' + link + '\n#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.'}}}}).execute()
@@ -108,8 +111,7 @@ jobs:
               print("YT UPLOAD FAIL", str(e)[:500])
           else:
             print("YT SKIPPED - Token nahi mila")
-          # FIX 2 - INSTA REELS - DIRECT UPLOAD - Catbox / Tmpfiles / Transfer band - Koi Public Link nahi - Video File sidha 【entity-IG¦canonical_name=IG】 pe
-          # FIX 2 - INSTA LINK - Caption me Link kabhi Blue nahi hota - Sirf Bio me 4 Links Clickable hai
+          # FIX 2 - INSTA REELS - PUT + Offset + 5 Min Wait - FINISHED ke baad hi Publish
           try:
             ig_id = os.environ.get('IG_ID','')
             ig_token = os.environ.get('IG_TOKEN','')
@@ -123,19 +125,27 @@ jobs:
               container_id = cr.get('id','')
               if upload_uri and container_id:
                 with open('video.mp4','rb') as f:
-                  r2 = requests.post(upload_uri, headers={"Authorization":f"OAuth {ig_token}","Content-Type":"video/mp4","file_size":str(size)}, data=f, timeout=120)
-                print("【entity-IG¦canonical_name=IG】 VIDEO UPLOAD:", r2.status_code, r2.text[:300])
-                time.sleep(20)
-                for i in range(8):
+                  r2 = requests.put(upload_uri, headers={"Authorization":f"OAuth {ig_token}","Content-Type":"video/mp4","Offset":"0","file_size":str(size)}, data=f, timeout=180)
+                print("IG VIDEO UPLOAD:", r2.status_code, r2.text[:300])
+                finished = False
+                for i in range(30):
+                  time.sleep(10)
                   st = requests.get(f"https://graph.facebook.com/v21.0/{container_id}?fields=status_code,status&access_token={ig_token}", timeout=30).json()
                   print("【entity-IG¦canonical_name=IG】 STATUS:", st)
-                  if st.get('status_code')=='FINISHED': break
-                  time.sleep(10)
-                ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
-                pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":container_id,"access_token":ig_token}, timeout=30).json()
-                print("【entity-IG¦canonical_name=IG】 REELS PUBLISHED:", pub)
+                  if st.get('status_code')=='FINISHED':
+                    finished = True
+                    break
+                  if st.get('status_code')=='ERROR':
+                    print("IG ERROR - Video Process nahi hua")
+                    break
+                if finished:
+                  ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
+                  pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":container_id,"access_token":ig_token}, timeout=30).json()
+                  print("IG REELS PUBLISHED:", pub)
+                else:
+                  print("IG REELS FAIL - Video FINISHED nahi hua - 5 Min Wait kiya")
               else:
-                print("【entity-IG¦canonical_name=IG】 REELS FAIL - Upload URI nahi mila - Token Expire ho sakta hai")
+                print("IG REELS FAIL - Upload URI nahi mila - Token Expire ho sakta hai")
           except Exception as e:
-            print("【entity-IG¦canonical_name=IG】 REELS FAIL", str(e)[:500])
+            print("IG REELS FAIL", str(e)[:500])
           PY
