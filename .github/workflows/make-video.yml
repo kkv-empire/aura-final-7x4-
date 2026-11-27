@@ -35,7 +35,7 @@ jobs:
           echo "$PRICE" > price.txt
           ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=white,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=0.5,fade=t=out:st=14.5:d=0.5,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
           ls -lh video.mp4
-      - name: Upload YT Shorts + Insta Reels - FINAL - 【entity-GitHub¦canonical_name=GitHub】 Release Link
+      - name: Upload YT Shorts + Insta Reels - FINAL - Release Link
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
@@ -56,7 +56,6 @@ jobs:
           VIDEO_DESC: ${{ inputs.caption }}
           NICHE: ${{ inputs.niche }}
           ASIN: ${{ inputs.asin }}
-          GITHUB_REPOSITORY: ${{ 【entity-github¦canonical_name=GitHub】.repository }}
         run: |
           python3 - << 'PY'
           import os, time, re, requests
@@ -85,7 +84,8 @@ jobs:
             try:
               creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
               yt = build('youtube','v3', credentials=creds)
-              yt_desc = "#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.\n" + desc + "\n\nLink ko Copy karke Browser me kholo - Bio me bhi Link hai"
+              A = "Am" + "azon"
+              yt_desc = "#ad | As an " + A + " Associate I earn from qualifying purchases.\n" + desc + "\n\nLink ko Copy karke Browser me kholo - Bio me bhi Link hai"
               req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':title,'description':yt_desc,'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
               res = req.execute()
               print("YT SHORTS OK", res['id'])
@@ -100,11 +100,12 @@ jobs:
             pub_url = ""
             if ig_id and ig_token and repo and gh_tok:
               tag = f"reel-{asin}-{int(time.time())}"
-              r = requests.post(f"https://api.github.com/repos/{repo}/releases", headers={"Authorization": f"Bearer {gh_tok}", "Accept": "application/vnd.【entity-github¦canonical_name=GitHub】+json"}, json={"tag_name": tag, "name": tag, "draft": False, "prerelease": False}, timeout=30).json()
+              G = "git" + "hub"
+              r = requests.post("https://api." + G + ".com/repos/" + repo + "/releases", headers={"Authorization": f"Bearer {gh_tok}", "Accept": "application/vnd." + G + "+json"}, json={"tag_name": tag, "name": tag, "draft": False, "prerelease": False}, timeout=30).json()
               rel_id = r.get('id')
               print("GH RELEASE:", rel_id)
               if rel_id:
-                up_url = f"https://uploads.github.com/repos/{repo}/releases/{rel_id}/assets?name=video.mp4"
+                up_url = "https://uploads." + G + ".com/repos/" + repo + "/releases/" + str(rel_id) + "/assets?name=video.mp4"
                 with open('video.mp4','rb') as f:
                   up = requests.post(up_url, headers={"Authorization": f"Bearer {gh_tok}", "Content-Type": "video/mp4"}, data=f, timeout=120).json()
                 if up.get('browser_download_url'):
@@ -112,7 +113,7 @@ jobs:
                   print("GITHUB VIDEO URL OK", pub_url[:100])
               print("PUBLIC VIDEO URL:", pub_url[:100] if pub_url else "NONE")
               if pub_url.startswith('http'):
-                ig_caption = "#ad | As an Amazon Associate I earn from qualifying purchases.\n" + desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
+                ig_caption = "#ad | As an Amazon Associate I earn from qualifying purchases.\n" + desc + "\nLink in Bio - Telegram pe saare Products dekho"
                 cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", json={"media_type":"REELS","video_url":pub_url,"caption":ig_caption,"access_token":ig_token}, timeout=30).json()
                 print("IG REELS CONTAINER:", str(cr)[:500])
                 if 'id' in cr:
