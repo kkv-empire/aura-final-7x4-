@@ -1,6 +1,5 @@
-// api/telegram.js — INSTANT POST, NO QUEUE, NO CRON
+// api/telegram.js — INSTANT POST, NO QUEUE, NO CRON - FINAL
 // Niche dabate hi sidha Video banake Telegram + 【entity-Instagram¦canonical_name=Instagram】 pe post
-
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
 const pkey = (chat) => `aura:pending:${chat}`;
@@ -46,8 +45,17 @@ function extractASIN(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
+// FIX - Affiliate Link sahi banao - ? hai to &tag=, nahi hai to ?tag= - Pehle ?tag= hi lagta tha, Link tut jata tha
+function makeAffiliateLink(url, tag) {
+  if (!url) return "";
+  if (!tag) return url;
+  if (url.includes("tag=")) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return url + sep + "tag=" + tag;
+}
+
 async function finishManualProduct(chatId, m) {
-  const tag = process.env.AMAZON_TAG || "";
+  const tag = process.env.AMAZON_TAG || "kkv131704-21";
   const asin = m.asin || ("MANUAL" + Date.now().toString(36).toUpperCase());
   const p = {
     asin,
@@ -56,7 +64,7 @@ async function finishManualProduct(chatId, m) {
     images: m.photoUrl ? [m.photoUrl] : [],
     features: [],
     amazon_link: m.url || "",
-    affiliate_link: tag && m.url ? `${m.url}?tag=${tag}` : (m.url || ""),
+    affiliate_link: makeAffiliateLink(m.url || "", tag),
   };
   await getRedis().set(pkey(chatId), p, { ex: 600 });
   await tg("sendMessage", {
@@ -181,8 +189,15 @@ async function handleUpdate(update) {
 
   await tg("sendMessage", { chat_id: chatId, text: "🔍 Link mil gaya… details nikaal raha hoon…" });
   try {
-    const { fetchProduct } = require("../lib/amazon");
-    const p = await fetchProduct(asin);
+    // FIX - File ka naam amzn.js hai, amazon.js nahi - Pehle Cannot find module aata tha
+    const { fetchProduct } = require("../lib/amzn");
+    const tag = process.env.AMAZON_TAG || "kkv131704-21";
+    const cleanLink = "https://www.amazon.in/dp/" + asin;
+    const affLink = makeAffiliateLink(cleanLink, tag);
+    const p = await fetchProduct(asin, affLink);
+    // FIX - Affiliate Link pakka set karo - amzn.js se kabhi khaali na aaye
+    p.affiliate_link = p.affiliate_link || affLink;
+    p.amazon_link = p.amazon_link || cleanLink;
     await getRedis().set(pkey(chatId), p, { ex: 600 });
     const feats = (p.features || []).slice(0, 2).map((f) => `✨ ${f}`).join("\n");
     await tg("sendMessage", {
