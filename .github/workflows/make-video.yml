@@ -7,23 +7,25 @@ on:
       asin: { description: "ASIN", required: true, type: string }
       niche: { description: "Niche", required: true, type: string }
       caption: { description: "Caption", required: true, type: string }
-      ig_id: { description: " IG ID", required: false, type: string }
-      ig_token: { description: " IG Token", required: false, type: string }
+      ig_id: { description: "IG ID", required: false, type: string }
+      ig_token: { description: "IG Token", required: false, type: string }
       price: { description: "Price Text", required: false, type: string }
 jobs:
   make:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Install ffmpeg + Python Lib
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core > /dev/null
           pip install -q google-api-python-client google-auth-oauthlib google-auth-httplib2 requests
-      - name: Download Real Image - HIGH RES
+      - name: Download Real Image
         run: |
           curl -L "${{ inputs.image_url }}" -o product.jpg
           ls -lh product.jpg
-      - name: Make CLEAR Premium Video - No Blur No Zoom
+      - name: Make CLEAR Premium Video
         env:
           TITLE: ${{ inputs.title }}
           PRICE: ${{ inputs.price }}
@@ -31,12 +33,11 @@ jobs:
           TITLE_SHORT=$(echo "$TITLE" | cut -c1-60)
           echo "$TITLE_SHORT" > title.txt
           echo "$PRICE" > price.txt
-          cat title.txt
-          cat price.txt
-          ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=white,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Comment / Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=0.5,fade=t=out:st=14.5:d=0.5,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
+          ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=white,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=0.5,fade=t=out:st=14.5:d=0.5,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
           ls -lh video.mp4
-      - name: Upload YT Shorts + Insta Reels - YT Same + IG tmpfiles Fix
+      - name: Upload YT Shorts + Insta Reels - FINAL - 【entity-GitHub¦canonical_name=GitHub】 Release Link
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_JSON: ${{ secrets.YT_REFRESH_JSON }}
@@ -54,19 +55,18 @@ jobs:
           VIDEO_TITLE: ${{ inputs.title }}
           VIDEO_DESC: ${{ inputs.caption }}
           NICHE: ${{ inputs.niche }}
-          IMAGE_URL: ${{ inputs.image_url }}
+          ASIN: ${{ inputs.asin }}
+          GITHUB_REPOSITORY: ${{ 【entity-github¦canonical_name=GitHub】.repository }}
         run: |
           python3 - << 'PY'
-          import os, json, time, re, requests
+          import os, time, re, requests
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
           from google.oauth2.credentials import Credentials
           niche = os.environ.get('NICHE','').lower()
+          asin = os.environ.get('ASIN','')
           desc = os.environ.get('VIDEO_DESC','')
           title = os.environ.get('VIDEO_TITLE','')[:100]
-          m = re.search(r'https://\S+', desc)
-          link = m.group(0) if m else ""
-          print("LINK:", link[:80] if link else "NO LINK")
           token = ""
           if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN'].strip()
           if not token:
@@ -79,73 +79,48 @@ jobs:
               j = os.environ.get(k,'')
               if not j: continue
               mm = re.search(r'"refresh_token"\s*:\s*"([^"]+)"', j)
-              if mm:
-                token = mm.group(1)
-                print("YT TOKEN FOUND in", k, "len=", len(token))
-                break
-          if not token:
-            for k in ['YT_REFRESH_JSON','YT_JSON']:
-              j = (os.environ.get(k,'') or "").strip()
-              if j and j.startswith("1//") and len(j) > 20:
-                token = j
-                break
-          print("YT TOKEN:", "YES len="+str(len(token)) if token else "NO")
-          yt_id = ""
+              if mm: token = mm.group(1); break
+          print("YT TOKEN:", "YES" if token else "NO")
           if token:
             try:
               creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
               yt = build('youtube','v3', credentials=creds)
-              req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':title,'description':desc,'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
+              yt_desc = "#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.\n" + desc + "\n\nLink ko Copy karke Browser me kholo - Bio me bhi Link hai"
+              req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':title,'description':yt_desc,'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
               res = req.execute()
-              yt_id = res['id']
-              print("YT SHORTS OK", yt_id)
-              if link:
-                try:
-                  c = yt.commentThreads().insert(part='snippet', body={'snippet':{'videoId':yt_id,'topLevelComment':{'snippet':{'textOriginal':'👉 Buy Link: ' + link + '\n#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.'}}}}).execute()
-                  print("YT COMMENT OK - Link Clickable", c['id'])
-                except Exception as e:
-                  print("YT COMMENT FAIL - Baad me dekhenge - Pehle Reels", str(e)[:200])
+              print("YT SHORTS OK", res['id'])
             except Exception as e:
               print("YT UPLOAD FAIL", str(e)[:500])
-          else:
-            print("YT SKIPPED - Token nahi mila")
-          # INSTA REELS - FIX - transfer.sh BAND - tmpfiles.org se Link banao
           try:
             ig_id = os.environ.get('IG_ID','')
             ig_token = os.environ.get('IG_TOKEN','')
-            print(" IG ID FOUND:", "YES" if ig_id else "NO")
-            if ig_id and ig_token:
-              pub_url = ""
-              try:
+            repo = os.environ.get('GITHUB_REPOSITORY','')
+            gh_tok = os.environ.get('GH_TOKEN','')
+            print("IG ID FOUND:", "YES" if ig_id else "NO")
+            pub_url = ""
+            if ig_id and ig_token and repo and gh_tok:
+              tag = f"reel-{asin}-{int(time.time())}"
+              r = requests.post(f"https://api.github.com/repos/{repo}/releases", headers={"Authorization": f"Bearer {gh_tok}", "Accept": "application/vnd.【entity-github¦canonical_name=GitHub】+json"}, json={"tag_name": tag, "name": tag, "draft": False, "prerelease": False}, timeout=30).json()
+              rel_id = r.get('id')
+              print("GH RELEASE:", rel_id)
+              if rel_id:
+                up_url = f"https://uploads.github.com/repos/{repo}/releases/{rel_id}/assets?name=video.mp4"
                 with open('video.mp4','rb') as f:
-                  r = requests.post('https://tmpfiles.org/api/v1/upload', files={'file':('video.mp4', f, 'video/mp4')}, timeout=120)
-                j = r.json()
-                print("TMPFILES RES:", str(j)[:300])
-                if j.get('url'):
-                  pub_url = j['url'].replace('https://tmpfiles.org/', 'https://tmpfiles.org/dl/')
-                  print("TMPFILES OK", pub_url[:80])
-              except Exception as e:
-                print("TMPFILES FAIL", str(e)[:300])
-              if not pub_url:
-                try:
-                  with open('video.mp4','rb') as f:
-                    r = requests.post('https://catbox.moe/user/api.php', data={'reqtype':'fileupload'}, files={'fileToUpload':('video.mp4', f, 'video/mp4')}, timeout=120)
-                  if r.text.strip().startswith('https://'):
-                    pub_url = r.text.strip()
-                    print("CATBOX OK", pub_url[:80])
-                except Exception as e:
-                  print("CATBOX FAIL", str(e)[:200])
-              print("PUBLIC VIDEO URL:", pub_url[:80] if pub_url else "NONE")
+                  up = requests.post(up_url, headers={"Authorization": f"Bearer {gh_tok}", "Content-Type": "video/mp4"}, data=f, timeout=120).json()
+                if up.get('browser_download_url'):
+                  pub_url = up['browser_download_url']
+                  print("GITHUB VIDEO URL OK", pub_url[:100])
+              print("PUBLIC VIDEO URL:", pub_url[:100] if pub_url else "NONE")
               if pub_url.startswith('http'):
-                ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
+                ig_caption = "#ad | As an Amazon Associate I earn from qualifying purchases.\n" + desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
                 cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", json={"media_type":"REELS","video_url":pub_url,"caption":ig_caption,"access_token":ig_token}, timeout=30).json()
                 print("IG REELS CONTAINER:", str(cr)[:500])
                 if 'id' in cr:
-                  container_id = cr['id']
+                  cid = cr['id']
                   finished = False
                   for i in range(30):
                     time.sleep(10)
-                    st = requests.get(f"https://graph.facebook.com/v21.0/{container_id}?fields=status_code,status&access_token={ig_token}", timeout=30).json()
+                    st = requests.get(f"https://graph.facebook.com/v21.0/{cid}?fields=status_code,status&access_token={ig_token}", timeout=30).json()
                     print("IG STATUS:", st)
                     if st.get('status_code')=='FINISHED':
                       finished = True
@@ -154,14 +129,12 @@ jobs:
                       print("IG ERROR:", st)
                       break
                   if finished:
-                    pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":container_id,"access_token":ig_token}, timeout=30).json()
+                    pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":cid,"access_token":ig_token}, timeout=30).json()
                     print("IG REELS PUBLISHED:", pub)
                   else:
                     print("IG REELS FAIL - FINISHED nahi hua")
                 else:
                   print("IG REELS FAIL - Container nahi bana:", str(cr)[:500])
-              else:
-                print("IG REELS FAIL - Public URL nahi mili")
           except Exception as e:
             print("IG REELS FAIL", str(e)[:500])
           PY
