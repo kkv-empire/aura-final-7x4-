@@ -1,5 +1,4 @@
 // api/telegram.js — INSTANT POST, NO QUEUE, NO CRON - FINAL
-// Niche dabate hi sidha Video banake Telegram + 【entity-Instagram¦canonical_name=Instagram】 pe post
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
 const pkey = (chat) => `aura:pending:${chat}`;
@@ -45,7 +44,6 @@ function extractASIN(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
-// FIX - Affiliate Link sahi banao - ? hai to &tag=, nahi hai to ?tag= - Pehle ?tag= hi lagta tha, Link tut jata tha
 function makeAffiliateLink(url, tag) {
   if (!url) return "";
   if (!tag) return url;
@@ -189,13 +187,12 @@ async function handleUpdate(update) {
 
   await tg("sendMessage", { chat_id: chatId, text: "🔍 Link mil gaya… details nikaal raha hoon…" });
   try {
-    // FIX - File ka naam amzn.js hai, amazon.js nahi - Pehle Cannot find module aata tha
-    const { fetchProduct } = require("../lib/amzn");
+    // FIX - GitHub me File ka naam amazon.js hai - amzn.js nahi - Isliye amazon.js bulana hai
+    const { fetchProduct } = require("../lib/amazon");
     const tag = process.env.AMAZON_TAG || "kkv131704-21";
     const cleanLink = "https://www.amazon.in/dp/" + asin;
     const affLink = makeAffiliateLink(cleanLink, tag);
     const p = await fetchProduct(asin, affLink);
-    // FIX - Affiliate Link pakka set karo - amzn.js se kabhi khaali na aaye
     p.affiliate_link = p.affiliate_link || affLink;
     p.amazon_link = p.amazon_link || cleanLink;
     await getRedis().set(pkey(chatId), p, { ex: 600 });
