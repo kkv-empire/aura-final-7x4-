@@ -7,8 +7,8 @@ on:
       asin: { description: "ASIN", required: true, type: string }
       niche: { description: "Niche", required: true, type: string }
       caption: { description: "Caption", required: true, type: string }
-      ig_id: { description: "【entity-IG¦canonical_name=IG】 ID", required: false, type: string }
-      ig_token: { description: "【entity-IG¦canonical_name=IG】 Token", required: false, type: string }
+      ig_id: { description: " 【entity-IG¦canonical_name=IG】 ID", required: false, type: string }
+      ig_token: { description: " 【entity-IG¦canonical_name=IG】 Token", required: false, type: string }
       price: { description: "Price Text", required: false, type: string }
 jobs:
   make:
@@ -35,7 +35,7 @@ jobs:
           cat price.txt
           ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=white,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Comment / Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=0.5,fade=t=out:st=14.5:d=0.5,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
           ls -lh video.mp4
-      - name: Upload YT Shorts + Comment Clickable Link + Insta Reels Direct
+      - name: Upload YT Shorts + Insta Reels - YT Same + 【entity-IG¦canonical_name=IG】 video_url Fix
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
@@ -67,7 +67,6 @@ jobs:
           m = re.search(r'https://\S+', desc)
           link = m.group(0) if m else ""
           print("LINK:", link[:80] if link else "NO LINK")
-          # FIX 1 - YT TOKEN - Niche se Match mat karo - JSON me kahi bhi refresh_token ho, le lo
           token = ""
           if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN'].strip()
           if not token:
@@ -91,7 +90,6 @@ jobs:
                 token = j
                 break
           print("YT TOKEN:", "YES len="+str(len(token)) if token else "NO")
-          print("YT NICHE:", niche, "| YT CLIENT_ID:", "YES" if os.environ.get('YT_CLIENT_ID') else "NO")
           yt_id = ""
           if token:
             try:
@@ -106,46 +104,64 @@ jobs:
                   c = yt.commentThreads().insert(part='snippet', body={'snippet':{'videoId':yt_id,'topLevelComment':{'snippet':{'textOriginal':'👉 Buy Link: ' + link + '\n#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.'}}}}).execute()
                   print("YT COMMENT OK - Link Clickable", c['id'])
                 except Exception as e:
-                  print("YT COMMENT FAIL - Channel me Comments OFF / Held for Review hai - YouTube Studio > Settings > Community > Comments OFF karo", str(e)[:300])
+                  print("YT COMMENT FAIL - Baad me dekhenge - Pehle Reels", str(e)[:200])
             except Exception as e:
               print("YT UPLOAD FAIL", str(e)[:500])
           else:
             print("YT SKIPPED - Token nahi mila")
-          # FIX 2 - INSTA REELS - PUT + Offset + 5 Min Wait - FINISHED ke baad hi Publish
+          # INSTA REELS - FIX - Resumable BAND - transfer.sh + video_url - Jaise YT ne Video Upload kiya
           try:
             ig_id = os.environ.get('IG_ID','')
             ig_token = os.environ.get('IG_TOKEN','')
             print("【entity-IG¦canonical_name=IG】 ID FOUND:", "YES" if ig_id else "NO")
             if ig_id and ig_token:
-              size = os.path.getsize('video.mp4')
-              print("VIDEO SIZE:", size)
-              cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", data={"upload_type":"resumable","media_type":"REELS","access_token":ig_token}, timeout=30).json()
-              print("【entity-IG¦canonical_name=IG】 UPLOAD START:", str(cr)[:500])
-              upload_uri = cr.get('uri') or cr.get('upload_uri') or ""
-              container_id = cr.get('id','')
-              if upload_uri and container_id:
+              pub_url = ""
+              try:
                 with open('video.mp4','rb') as f:
-                  r2 = requests.put(upload_uri, headers={"Authorization":f"OAuth {ig_token}","Content-Type":"video/mp4","Offset":"0","file_size":str(size)}, data=f, timeout=180)
-                print("IG VIDEO UPLOAD:", r2.status_code, r2.text[:300])
-                finished = False
-                for i in range(30):
-                  time.sleep(10)
-                  st = requests.get(f"https://graph.facebook.com/v21.0/{container_id}?fields=status_code,status&access_token={ig_token}", timeout=30).json()
-                  print("【entity-IG¦canonical_name=IG】 STATUS:", st)
-                  if st.get('status_code')=='FINISHED':
-                    finished = True
-                    break
-                  if st.get('status_code')=='ERROR':
-                    print("IG ERROR - Video Process nahi hua")
-                    break
-                if finished:
-                  ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
-                  pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":container_id,"access_token":ig_token}, timeout=30).json()
-                  print("IG REELS PUBLISHED:", pub)
+                  r = requests.put('https://transfer.sh/video.mp4', data=f, timeout=120)
+                if r.text.strip().startswith('https://'):
+                  pub_url = r.text.strip()
+                  print("TRANSFER OK", pub_url[:80])
                 else:
-                  print("IG REELS FAIL - Video FINISHED nahi hua - 5 Min Wait kiya")
+                  print("TRANSFER FAIL", r.text[:200])
+              except Exception as e:
+                print("TRANSFER FAIL", str(e)[:200])
+              if not pub_url:
+                try:
+                  with open('video.mp4','rb') as f:
+                    r = requests.post('https://catbox.moe/user/api.php', data={'reqtype':'fileupload'}, files={'fileToUpload':('video.mp4', f, 'video/mp4')}, timeout=120)
+                  if r.text.strip().startswith('https://'):
+                    pub_url = r.text.strip()
+                    print("CATBOX OK", pub_url[:80])
+                except Exception as e:
+                  print("CATBOX FAIL", str(e)[:200])
+              print("PUBLIC VIDEO URL:", pub_url[:80] if pub_url else "NONE")
+              if pub_url.startswith('http'):
+                ig_caption = desc + "\n🔗 Link in Bio - Telegram pe saare Products dekho"
+                cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", json={"media_type":"REELS","video_url":pub_url,"caption":ig_caption,"access_token":ig_token}, timeout=30).json()
+                print("IG REELS CONTAINER:", str(cr)[:500])
+                if 'id' in cr:
+                  container_id = cr['id']
+                  finished = False
+                  for i in range(30):
+                    time.sleep(10)
+                    st = requests.get(f"https://graph.facebook.com/v21.0/{container_id}?fields=status_code,status&access_token={ig_token}", timeout=30).json()
+                    print("IG STATUS:", st)
+                    if st.get('status_code')=='FINISHED':
+                      finished = True
+                      break
+                    if st.get('status_code')=='ERROR':
+                      print("IG ERROR:", st)
+                      break
+                  if finished:
+                    pub = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media_publish", json={"creation_id":container_id,"access_token":ig_token}, timeout=30).json()
+                    print("IG REELS PUBLISHED:", pub)
+                  else:
+                    print("IG REELS FAIL - FINISHED nahi hua")
+                else:
+                  print("IG REELS FAIL - Container nahi bana:", str(cr)[:500])
               else:
-                print("IG REELS FAIL - Upload URI nahi mila - Token Expire ho sakta hai")
+                print("IG REELS FAIL - Public URL nahi mili")
           except Exception as e:
             print("IG REELS FAIL", str(e)[:500])
           PY
