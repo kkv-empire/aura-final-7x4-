@@ -187,24 +187,26 @@ jobs:
                     print("IG REELS FAIL - FINISHED nahi hua")
                 else:
                   print("IG REELS FAIL - Container nahi bana:", str(cr)[:500])
-              # FB FIX - Reels API - 3 Step - /videos wala Purana Code Hata Diya
+              # FB FIX - /videos 3-Step - video_reels Hata Diya - Ye Pakka Chalega
               if fb_id and fb_token:
                 try:
                   fb_caption = "#ad | As an " + A + " Associate I earn from qualifying purchases.\n" + desc + "\nLink pe Click karo - Direct " + A + " khulega"
-                  st1 = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/video_reels", json={"upload_phase":"start","access_token":fb_token}, timeout=30).json()
-                  print("FB REELS START:", str(st1)[:500])
-                  vid_id = st1.get("video_id")
+                  import os as _os
+                  fsize = _os.path.getsize('video.mp4')
+                  st1 = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"upload_phase":"start","file_size":fsize,"access_token":fb_token}, timeout=30).json()
+                  print("FB VIDEO START:", str(st1)[:500])
+                  fvid = st1.get("video_id")
                   up_url2 = st1.get("upload_url")
-                  if vid_id and up_url2:
+                  if fvid and up_url2:
                     with open('video.mp4','rb') as vf:
-                      tr = requests.post(up_url2, headers={"Authorization": f"OAuth {fb_token}"}, data=vf, timeout=120)
-                    print("FB REELS TRANSFER:", tr.status_code, str(tr.text)[:500])
-                    fin = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/video_reels", json={"upload_phase":"finish","video_id":vid_id,"description":fb_caption,"access_token":fb_token}, timeout=30).json()
-                    print("FB REELS POSTED:", str(fin)[:500])
+                      tr = requests.post(up_url2, headers={"Authorization": f"OAuth {fb_token}"}, data=vf, timeout=180)
+                    print("FB VIDEO TRANSFER:", tr.status_code, str(tr.text)[:500])
+                    fin = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"upload_phase":"finish","video_id":fvid,"title":title[:80],"description":fb_caption,"published":True,"access_token":fb_token}, timeout=30).json()
+                    print("FB VIDEO POSTED:", str(fin)[:500])
                   else:
-                    print("FB REELS FAIL - Start nahi hua")
+                    print("FB VIDEO START FAIL - Token / Page ID Check karo")
                 except Exception as e:
-                  print("FB REELS FAIL", str(e)[:500])
+                  print("FB VIDEO FAIL", str(e)[:500])
           except Exception as e:
             print("IG/FB REELS FAIL", str(e)[:500])
           PY
