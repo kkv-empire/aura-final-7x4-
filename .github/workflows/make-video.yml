@@ -30,11 +30,11 @@ jobs:
           echo "ASIN=$ASIN IMG_URL=$IMG_URL"
           rm -f product.jpg amz.html jina.txt
           # Rasta 1 - Agar Vercel se Asli Photo hi aayi hai to wahi lo
-          if echo "$IMG_URL" | grep -q "media-【entity-amazon¦canonical_name=Amazon】\|images/I/"; then
+          if echo "$IMG_URL" | grep -q "media-\|images/I/"; then
             curl -sL -A "Mozilla/5.0" "$IMG_URL" -o product.jpg || true
             echo "RASTA 1 SIZE: $(stat -c%s product.jpg 2>/dev/null || echo 0)"
           fi
-          # Rasta 2 - GH se 【entity-Amazon¦canonical_name=Amazon】 HTML se Asli Photo nikalo - GH IP Block nahi hota
+          # Rasta 2 - GH se HTML se Asli Photo nikalo - GH IP Block nahi hota
           if [ ! -s product.jpg ] || [ $(stat -c%s product.jpg 2>/dev/null || echo 0) -lt 5000 ]; then
             rm -f product.jpg
             curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" -H "Accept-Language: en-US,en;q=0.9" "https://www.amazon.in/dp/$ASIN" -o amz.html || true
@@ -116,6 +116,7 @@ jobs:
           asin = os.environ.get('ASIN','')
           desc = os.environ.get('VIDEO_DESC','')
           title = os.environ.get('VIDEO_TITLE','')[:100]
+          A = "Am" + "azon"
           token = ""
           if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN'].strip()
           if not token:
@@ -134,7 +135,6 @@ jobs:
             try:
               creds = Credentials(None, refresh_token=token, token_uri='https://oauth2.googleapis.com/token', client_id=os.environ['YT_CLIENT_ID'], client_secret=os.environ['YT_CLIENT_SECRET'])
               yt = build('youtube','v3', credentials=creds)
-              A = "Am" + "azon"
               yt_desc = "#ad | As an " + A + " Associate I earn from qualifying purchases.\n" + desc + "\n\nLink ko Copy karke Browser me kholo - Bio me bhi Link hai"
               req = yt.videos().insert(part='snippet,status', body={'snippet':{'title':title,'description':yt_desc,'categoryId':'27'},'status':{'privacyStatus':'public','madeForKids':False}}, media_body=MediaFileUpload('video.mp4', chunksize=-1, resumable=True))
               res = req.execute()
@@ -165,7 +165,7 @@ jobs:
                   print("GITHUB VIDEO URL OK", pub_url[:100])
               print("PUBLIC VIDEO URL:", pub_url[:100] if pub_url else "NONE")
               if pub_url.startswith('http') and ig_id and ig_token:
-                ig_caption = "#ad | As an Amazon Associate I earn from qualifying purchases.\n" + desc + "\nLink in Bio - Telegram pe saare Products dekho"
+                ig_caption = "#ad | As an " + A + " Associate I earn from qualifying purchases.\n" + desc + "\nLink in Bio - Telegram pe saare Products dekho"
                 cr = requests.post(f"https://graph.facebook.com/v21.0/{ig_id}/media", json={"media_type":"REELS","video_url":pub_url,"caption":ig_caption,"access_token":ig_token}, timeout=30).json()
                 print("IG REELS CONTAINER:", str(cr)[:500])
                 if 'id' in cr:
@@ -187,10 +187,24 @@ jobs:
                     print("IG REELS FAIL - FINISHED nahi hua")
                 else:
                   print("IG REELS FAIL - Container nahi bana:", str(cr)[:500])
-              if pub_url.startswith('http') and fb_id and fb_token:
-                fb_caption = "#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.\n" + desc + "\nLink pe Click karo - Direct Amazon khulega"
-                fb = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"file_url":pub_url,"description":fb_caption,"access_token":fb_token}, timeout=60).json()
-                print("FB REELS POSTED:", str(fb)[:500])
+              # FB FIX - Reels API - 3 Step - /videos wala Purana Code Hata Diya
+              if fb_id and fb_token:
+                try:
+                  fb_caption = "#ad | As an " + A + " Associate I earn from qualifying purchases.\n" + desc + "\nLink pe Click karo - Direct " + A + " khulega"
+                  st1 = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/video_reels", json={"upload_phase":"start","access_token":fb_token}, timeout=30).json()
+                  print("FB REELS START:", str(st1)[:500])
+                  vid_id = st1.get("video_id")
+                  up_url2 = st1.get("upload_url")
+                  if vid_id and up_url2:
+                    with open('video.mp4','rb') as vf:
+                      tr = requests.post(up_url2, headers={"Authorization": f"OAuth {fb_token}"}, data=vf, timeout=120)
+                    print("FB REELS TRANSFER:", tr.status_code, str(tr.text)[:500])
+                    fin = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/video_reels", json={"upload_phase":"finish","video_id":vid_id,"description":fb_caption,"access_token":fb_token}, timeout=30).json()
+                    print("FB REELS POSTED:", str(fin)[:500])
+                  else:
+                    print("FB REELS FAIL - Start nahi hua")
+                except Exception as e:
+                  print("FB REELS FAIL", str(e)[:500])
           except Exception as e:
             print("IG/FB REELS FAIL", str(e)[:500])
           PY
