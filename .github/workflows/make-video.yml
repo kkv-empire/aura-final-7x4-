@@ -116,7 +116,7 @@ jobs:
           asin = os.environ.get('ASIN','')
           desc = os.environ.get('VIDEO_DESC','')
           title = os.environ.get('VIDEO_TITLE','')[:100]
-          A = "Am" + "【entity-azon¦canonical_name=Amazon】"
+          A = "Am" + "azon"
           token = ""
           if os.environ.get('YT_REFRESH_TOKEN'): token = os.environ['YT_REFRESH_TOKEN'].strip()
           if not token:
@@ -187,26 +187,48 @@ jobs:
                     print("IG REELS FAIL - FINISHED nahi hua")
                 else:
                   print("IG REELS FAIL - Container nahi bana:", str(cr)[:500])
-              # FB FIX - upload_session_id wala Transfer - upload_url nahi aata FB me
+              # FB FIX - Pehle Reels Try karo - Fail ho to Videos se karo - Dono Rasta
               if fb_id and fb_token:
                 try:
                   fb_caption = "#ad | As an " + A + " Associate I earn from qualifying purchases.\n" + desc + "\nLink pe Click karo - Direct " + A + " khulega"
                   import os as _os
-                  fsize = _os.path.getsize('video.mp4')
-                  st1 = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"upload_phase":"start","file_size":fsize,"access_token":fb_token}, timeout=30).json()
-                  print("FB VIDEO START:", str(st1)[:500])
-                  fvid = st1.get("video_id")
-                  sess = st1.get("upload_session_id")
-                  start_off = int(st1.get("start_offset", 0))
-                  if fvid and sess:
-                    with open('video.mp4','rb') as vf:
-                      vdata = vf.read()
-                    tr = requests.post(f"https://graph.facebook.com/v21.0/{fvid}", data={"upload_phase":"transfer","upload_session_id":sess,"start_offset":str(start_off),"access_token":fb_token}, files={"video_file_chunk": ("video.mp4", vdata, "video/mp4")}, timeout=180)
-                    print("FB VIDEO TRANSFER:", tr.status_code, str(tr.text)[:500])
-                    fin = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"upload_phase":"finish","video_id":fvid,"upload_session_id":sess,"title":title[:80],"description":fb_caption,"published":True,"access_token":fb_token}, timeout=30).json()
-                    print("FB VIDEO POSTED:", str(fin)[:500])
-                  else:
-                    print("FB VIDEO START FAIL - Token / Page ID Check karo")
+                  fb_done = False
+                  try:
+                    st1 = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/video_reels", json={"upload_phase":"start","access_token":fb_token}, timeout=30).json()
+                    print("FB REELS START:", str(st1)[:500])
+                    vid_id = st1.get("video_id")
+                    up_url2 = st1.get("upload_url")
+                    sess2 = st1.get("upload_session_id")
+                    if vid_id and (up_url2 or sess2):
+                      with open('video.mp4','rb') as vf:
+                        vdata = vf.read()
+                      if up_url2:
+                        tr = requests.post(up_url2, headers={"Authorization": f"OAuth {fb_token}"}, data=vdata, timeout=180)
+                        print("FB REELS TRANSFER:", tr.status_code, str(tr.text)[:300])
+                      else:
+                        tr = requests.post(f"https://graph.facebook.com/v21.0/{vid_id}", data={"upload_phase":"transfer","upload_session_id":sess2,"start_offset":"0","access_token":fb_token}, files={"video_file_chunk": ("video.mp4", vdata, "video/mp4")}, timeout=180)
+                        print("FB REELS TRANSFER:", tr.status_code, str(tr.text)[:300])
+                      fin = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/video_reels", json={"upload_phase":"finish","video_id":vid_id,"description":fb_caption,"access_token":fb_token}, timeout=30).json()
+                      print("FB REELS POSTED:", str(fin)[:500])
+                      if "success" in fin or "id" in fin or "video_id" in fin:
+                        fb_done = True
+                  except Exception as e:
+                    print("FB REELS TRY FAIL", str(e)[:300])
+                  if not fb_done:
+                    fsize = _os.path.getsize('video.mp4')
+                    st1 = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"upload_phase":"start","file_size":fsize,"access_token":fb_token}, timeout=30).json()
+                    print("FB VIDEO START:", str(st1)[:500])
+                    fvid = st1.get("video_id")
+                    sess = st1.get("upload_session_id")
+                    if fvid and sess:
+                      with open('video.mp4','rb') as vf:
+                        vdata = vf.read()
+                      tr = requests.post(f"https://graph.facebook.com/v21.0/{fvid}", data={"upload_phase":"transfer","upload_session_id":sess,"start_offset":"0","access_token":fb_token}, files={"video_file_chunk": ("video.mp4", vdata, "video/mp4")}, timeout=180)
+                      print("FB VIDEO TRANSFER:", tr.status_code, str(tr.text)[:300])
+                      fin = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"upload_phase":"finish","video_id":fvid,"upload_session_id":sess,"title":title[:80],"description":fb_caption,"published":True,"access_token":fb_token}, timeout=30).json()
+                      print("FB VIDEO POSTED:", str(fin)[:500])
+                    else:
+                      print("FB VIDEO START FAIL - Token / Page ID Check karo")
                 except Exception as e:
                   print("FB VIDEO FAIL", str(e)[:500])
           except Exception as e:
