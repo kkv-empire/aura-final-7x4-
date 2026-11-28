@@ -23,10 +23,52 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core > /dev/null
           pip install -q google-api-python-client google-auth-oauthlib google-auth-httplib2 requests
-      - name: Download Real Image
+      - name: Download Real Image - GH se - 4 Rasta
         run: |
-          curl -L "${{ inputs.image_url }}" -o product.jpg
-          ls -lh product.jpg
+          ASIN="${{ inputs.asin }}"
+          IMG_URL="${{ inputs.image_url }}"
+          echo "ASIN=$ASIN IMG_URL=$IMG_URL"
+          rm -f product.jpg amz.html jina.txt
+          # Rasta 1 - Agar Vercel se Asli Photo hi aayi hai to wahi lo
+          if echo "$IMG_URL" | grep -q "media-【entity-amazon¦canonical_name=Amazon】\|images/I/"; then
+            curl -sL -A "Mozilla/5.0" "$IMG_URL" -o product.jpg || true
+            echo "RASTA 1 SIZE: $(stat -c%s product.jpg 2>/dev/null || echo 0)"
+          fi
+          # Rasta 2 - GH se 【entity-Amazon¦canonical_name=Amazon】 HTML se Asli Photo nikalo - GH IP Block nahi hota
+          if [ ! -s product.jpg ] || [ $(stat -c%s product.jpg 2>/dev/null || echo 0) -lt 5000 ]; then
+            rm -f product.jpg
+            curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" -H "Accept-Language: en-US,en;q=0.9" "https://www.amazon.in/dp/$ASIN" -o amz.html || true
+            PYIMG=$(python3 -c "
+          import re
+          try:
+            t=open('amz.html',errors='ignore').read()
+            m=re.findall(r'https://m\.media-amazon\.com/images/I/[A-Za-z0-9._\-+%]+?\.jpg',t)
+            m=[x for x in m if '_SL' not in x and '_SX' not in x and '_SS' not in x and 'play-icon' not in x]
+            print(m[0] if m else '')
+          except: print('')
+          " || true)
+            echo "RASTA 2 IMG=$PYIMG"
+            if [ -n "$PYIMG" ]; then curl -sL -A "Mozilla/5.0" "$PYIMG" -o product.jpg || true; fi
+            echo "RASTA 2 SIZE: $(stat -c%s product.jpg 2>/dev/null || echo 0)"
+          fi
+          # Rasta 3 - Jina Server se - Telegram jaisa Server
+          if [ ! -s product.jpg ] || [ $(stat -c%s product.jpg 2>/dev/null || echo 0) -lt 5000 ]; then
+            rm -f product.jpg
+            curl -sL "https://r.jina.ai/https://www.amazon.in/dp/$ASIN" -o jina.txt || true
+            JIMG=$(grep -oE "https://m\.media-amazon\.com/images/I/[A-Za-z0-9._%+-]+\.jpg" jina.txt | grep -v "_SL" | grep -v "_SX" | head -n 1 || true)
+            echo "RASTA 3 IMG=$JIMG"
+            if [ -n "$JIMG" ]; then curl -sL -A "Mozilla/5.0" "$JIMG" -o product.jpg || true; fi
+            echo "RASTA 3 SIZE: $(stat -c%s product.jpg 2>/dev/null || echo 0)"
+          fi
+          # Rasta 4 - Microlink OG Image - Last Rasta
+          if [ ! -s product.jpg ] || [ $(stat -c%s product.jpg 2>/dev/null || echo 0) -lt 5000 ]; then
+            rm -f product.jpg
+            OG=$(curl -sL "https://api.microlink.io/?url=https://www.amazon.in/dp/$ASIN&meta=false&embed=image.url" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('image',{}).get('url',''))" || true)
+            echo "RASTA 4 IMG=$OG"
+            if [ -n "$OG" ]; then curl -sL -A "Mozilla/5.0" "$OG" -o product.jpg || true; fi
+          fi
+          ls -lh product.jpg || echo "NO IMAGE - Title wali Video banegi"
+          file product.jpg || true
       - name: Make CLEAR Premium Video
         env:
           TITLE: ${{ inputs.title }}
@@ -35,7 +77,11 @@ jobs:
           TITLE_SHORT=$(echo "$TITLE" | cut -c1-60)
           echo "$TITLE_SHORT" > title.txt
           echo "$PRICE" > price.txt
-          ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=white,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=0.5,fade=t=out:st=14.5:d=0.5,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
+          if [ -s product.jpg ]; then
+            ffmpeg -y -loop 1 -i product.jpg -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=white,drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,fade=t=in:st=0:d=0.5,fade=t=out:st=14.5:d=0.5,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
+          else
+            ffmpeg -y -f lavfi -i color=c=0x111111:s=1080x1920:d=15 -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -filter_complex "[0:v]drawbox=x=0:y=0:w=1080:h=180:color=black@0.65:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=title.txt:fontsize=38:fontcolor=white:x=(w-text_w)/2:y=30:line_spacing=8,drawbox=x=0:y=1740:w=1080:h=180:color=black@0.75:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:textfile=price.txt:fontsize=48:fontcolor=yellow:x=(w-text_w)/2:y=1760,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SHOP NOW - Link in Bio':fontsize=32:fontcolor=white:x=(w-text_w)/2:y=1830,format=yuv420p[v]" -map "[v]" -map 1:a -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest video.mp4
+          fi
           ls -lh video.mp4
       - name: Upload YT Shorts + Insta Reels + FB Reels - FINAL - Release Link
         env:
@@ -142,7 +188,7 @@ jobs:
                 else:
                   print("IG REELS FAIL - Container nahi bana:", str(cr)[:500])
               if pub_url.startswith('http') and fb_id and fb_token:
-                fb_caption = "#ad | As an Amazon Associate I earn from qualifying purchases.\n" + desc + "\nLink pe Click karo - Direct Amazon khulega"
+                fb_caption = "#ad | As an 【entity-Amazon¦canonical_name=Amazon】 Associate I earn from qualifying purchases.\n" + desc + "\nLink pe Click karo - Direct Amazon khulega"
                 fb = requests.post(f"https://graph.facebook.com/v21.0/{fb_id}/videos", json={"file_url":pub_url,"description":fb_caption,"access_token":fb_token}, timeout=60).json()
                 print("FB REELS POSTED:", str(fb)[:500])
           except Exception as e:
