@@ -1,4 +1,4 @@
-// api/telegram.js — INSTANT POST, NO QUEUE, NO CRON - FINAL
+// api/telegram.js — INSTANT POST, NO QUEUE, NO CRON - FINAL - FB Line Added
 const TOKEN = process.env.TG_BOT_TOKEN;
 const NICHES = ["Aivendora", "Trendmind", "Smartshiply", "Nichepilot", "Adbrainx", "Cartflow", "Globaldrop"];
 const pkey = (chat) => `aura:pending:${chat}`;
@@ -99,7 +99,7 @@ async function handleUpdate(update) {
         const result = await distribute({ ...p, niche });
         await tg("sendMessage", {
           chat_id: chatId, parse_mode: "HTML",
-          text: `✅ <b>Post ho gaya!</b>\n📦 Product ${p.asin}\n✔️ Telegram: ${result.telegram || "OK"}\n✔️ Instagram: ${result.instagram || "OK"}\n✔️ YouTube: ${result.youtube || "OK"}\n✔️ Wix: ${result.wix || "OK"}`,
+          text: `✅ <b>Post ho gaya!</b>\n📦 Product ${p.asin}\n✔️ Telegram: ${result.telegram || "OK"}\n✔️ Instagram: ${result.instagram || "OK"}\n✔️ Facebook: ${result.facebook || "OK"}\n✔️ YouTube: ${result.youtube || "OK"}\n✔️ Wix: ${result.wix || "OK"}`,
         });
       } catch (e) {
         await tg("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: `❌ <b>Post fail:</b>\n${String(e.message || e).slice(0, 300)}\n\nDobara Niche dabao ya naya product bhejo.` });
@@ -187,7 +187,6 @@ async function handleUpdate(update) {
 
   await tg("sendMessage", { chat_id: chatId, text: "🔍 Link mil gaya… details nikaal raha hoon…" });
   try {
-    // FIX - GitHub me File ka naam amazon.js hai - amzn.js nahi - Isliye amazon.js bulana hai
     const { fetchProduct } = require("../lib/amazon");
     const tag = process.env.AMAZON_TAG || "kkv131704-21";
     const cleanLink = "https://www.amazon.in/dp/" + asin;
